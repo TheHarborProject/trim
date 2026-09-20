@@ -1,6 +1,6 @@
 {
   "name": "@theharborproject/trim",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Adaptive UI: a registry + binding contract that connects declarative controls to state your app already owns.",
   "license": "MIT",
   "repository": {
