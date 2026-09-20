@@ -1,0 +1,66 @@
+{
+  "name": "@theharborproject/trim",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Adaptive UI: a registry + binding contract that connects declarative controls to state your app already owns.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/theharborproject/trim.git"
+  },
+  "homepage": "https://github.com/theharborproject/trim#readme",
+  "bugs": {
+    "url": "https://github.com/theharborproject/trim/issues"
+  },
+  "keywords": [
+    "adaptive-ui",
+    "accessibility",
+    "settings",
+    "react",
+    "headless-ui",
+    "design-system"
+  ],
+  "sideEffects": false,
+  "main": "./dist/core/index.js",
+  "types": "./dist/core/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/core/index.d.ts",
+      "default": "./dist/core/index.js"
+    },
+    "./react": {
+      "types": "./dist/react/index.d.ts",
+      "default": "./dist/react/index.js"
+    },
+    "./advanced": {
+      "types": "./dist/advanced/index.d.ts",
+      "default": "./dist/advanced/index.js"
+    },
+    "./panel.css": "./dist/react/panel.css"
+  },
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=18.17"
+  },
+  "peerDependencies": {
+    "react": ">=18.0.0"
+  },
+  "peerDependenciesMeta": {
+    "react": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "react": "^19",
+    "typescript": "^5"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json && cp src/react/panel.css dist/react/panel.css",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "for f in tests/*.mjs; do node \"$f\" || exit 1; done"
+  }
+}
