@@ -1,6 +1,6 @@
 {
   "name": "@theharborproject/trim",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Adaptive UI: a registry + binding contract that connects declarative controls to state your app already owns.",
   "license": "MIT",
   "repository": {
@@ -12,8 +12,8 @@
     "url": "https://github.com/theharborproject/trim/issues"
   },
   "publishConfig": {
-  "access": "public"
-},
+    "access": "public"
+  },
   "keywords": [
     "adaptive-ui",
     "accessibility",
@@ -22,9 +22,9 @@
     "headless-ui",
     "design-system"
   ],
-"sideEffects": [
-  "./dist/react/panel.css"
-],
+  "sideEffects": [
+    "./dist/react/panel.css"
+  ],
   "main": "./dist/core/index.js",
   "types": "./dist/core/index.d.ts",
   "exports": {
@@ -66,6 +66,6 @@
     "build": "tsc -p tsconfig.json && cp src/react/panel.css dist/react/panel.css",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "for f in tests/*.mjs; do node \"$f\" || exit 1; done",
-      "prepack": "pnpm run build"
+    "prepack": "pnpm run build"
   }
 }
