@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 
 const read = (file) =>
   readFileSync(new URL(`../${file}`, import.meta.url), "utf8");
-const css = read("src/react/panel.css").replace(/\/\*[\s\S]*?\*\//g, "");
+const css = read("src/themes/default.css").replace(/\/\*[\s\S]*?\*\//g, "");
 const defaults = css.match(/\[data-trim-panel\]\s*\{([^}]+)\}/)[1];
 const tokens = new Map(
   [...defaults.matchAll(/(--[\w-]+):\s*([^;]+);/g)].map(([, name, value]) => [
@@ -89,9 +89,10 @@ for (const declaration of [
   assert.ok(forced.includes(declaration), declaration);
 }
 const pkg = JSON.parse(read("package.json"));
-assert.equal(pkg.exports["./panel.css"], "./dist/react/panel.css");
-assert.ok(pkg.sideEffects.includes("./dist/react/panel.css"));
+assert.equal(pkg.exports["./themes/default.css"], "./dist/themes/default.css", "the canonical subpath resolves to the built file");
+assert.equal(pkg.exports["./panel.css"], "./dist/themes/default.css", "panel.css is a compatibility alias to the SAME built file, not a second copy");
+assert.deepEqual(pkg.sideEffects, ["./dist/themes/default.css"], "exactly one physical CSS side effect — no leftover ./dist/react/panel.css entry");
 assert.ok(pkg.files.includes("dist"));
 console.log(
-  "PASS panel.css: local token contract, documentation, host isolation, accessibility rules, public export",
+  "PASS themes/default.css: local token contract, documentation, host isolation, accessibility rules, canonical export + panel.css compatibility alias to the same file",
 );

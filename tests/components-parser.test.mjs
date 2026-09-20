@@ -17,12 +17,13 @@ try {
   execFileSync('node', [
     'node_modules/typescript/bin/tsc',
     'src/core/registry.ts', 'src/core/integration.ts', 'src/core/bindings.ts',
-    'src/react/registry-context.ts', 'src/react/components.tsx',
+    'src/react/registry-context.ts', 'src/react/manifest.ts', 'src/react/components.tsx',
     '--outDir', dir, '--module', 'commonjs', '--target', 'es2020', '--jsx', 'react-jsx', '--skipLibCheck',
   ], { cwd: root });
   const require = createRequire(import.meta.url);
   const React = require('react');
-  const { Toggle, Segmented, Option, ToggleAction, buildIntegrationDescriptor } = require(path.join(dir, 'react', 'components.js'));
+  const { Toggle, Segmented, Option, ToggleAction, Registry, buildIntegrationDescriptor } = require(path.join(dir, 'react', 'components.js'));
+  const { TrimRegistryContext, defaultTrimRegistry } = require(path.join(dir, 'react', 'registry-context.js'));
 
   const noopBind = { get: () => false, set: () => {}, subscribe: () => () => {} };
   const scrollBind = { get: () => 'full', set: () => {}, subscribe: () => () => {} };
@@ -196,6 +197,39 @@ try {
     assert.ok(errors.some(e => e.includes('rendered directly')));
   }
 
+  // --- <Trim.Registry>: render-output shape, with and without `controls` ---
+  // Registry itself calls no hook (only its optional ManifestRegistration
+  // child does), so — like Section in panel.test.mjs — it's safe to call
+  // directly and inspect the returned element tree structurally. What
+  // ManifestRegistration's effects actually do (register/unregister via
+  // src/react/manifest.ts) is covered in manifest.test.mjs; this only proves
+  // <Trim.Registry> wires it in correctly, and leaves it out entirely when
+  // `controls` is omitted.
+  {
+    resetErrors();
+    const children = 'hello';
+    const element = Registry({ children });
+    assert.equal(element.type, TrimRegistryContext.Provider, 'still provides the (default) registry, unchanged');
+    assert.equal(element.props.value, defaultTrimRegistry);
+    const [manifestSlot, passedChildren] = element.props.children;
+    assert.ok(manifestSlot === undefined || manifestSlot === false, 'no `controls` prop — the manifest-registration slot renders nothing, exactly as before this prop existed');
+    assert.equal(passedChildren, children, 'children pass through unchanged');
+    assert.equal(errors.length, 0);
+  }
+  {
+    resetErrors();
+    const registry = { register() {}, unregister() {}, get() {}, list() { return []; }, subscribe() { return () => {}; } };
+    const controls = [{ id: 'theme', kind: 'toggle', label: 'Theme', binding: noopBind }];
+    const element = Registry({ registry, controls, children: 'x' });
+    assert.equal(element.props.value, registry, 'an explicit registry still wins over the default');
+    const [manifestElement, passedChildren] = element.props.children;
+    assert.ok(React.isValidElement(manifestElement), 'a `controls` prop renders the manifest-registration slot');
+    assert.equal(manifestElement.props.registry, registry);
+    assert.equal(manifestElement.props.controls, controls);
+    assert.equal(passedChildren, 'x', 'children still render alongside the manifest slot');
+    assert.equal(errors.length, 0, 'building the element tree alone (no real render) triggers no hook and no warning');
+  }
+
   console.error = originalError;
-  console.log('PASS react/components parser: toggle, segmented+options, multiple controls, dynamic arrays, Fragment (incl. Fragment+array), conditional children, duplicate ids, invalid children, direct-render misuse');
+  console.log('PASS react/components parser: toggle, segmented+options, multiple controls, dynamic arrays, Fragment (incl. Fragment+array), conditional children, duplicate ids, invalid children, direct-render misuse, <Trim.Registry> controls-prop wiring (present vs. omitted)');
 } finally { rmSync(dir, { recursive: true, force: true }); }

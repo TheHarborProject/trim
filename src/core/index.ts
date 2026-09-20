@@ -22,6 +22,8 @@ export type {
   ToggleControl, SegmentedControl, SegmentedOption, SliderControl, ActionControl, ToggleActionControl, CustomControl,
 } from "./integration";
 
+export { defineBooleanControl, defineSegmentedControl, defineActionControl, defineToggleActionControl } from "./define-controls";
+
 export { controller, callback, type TrimBinding } from "./bindings";
 
 export { createTrimController, type TrimController, type TrimControllerOptions } from "./controller";

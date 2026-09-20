@@ -1,60 +1,29 @@
 "use client";
 
-// Trim — individual control-kind widgets, the only place that knows about
-// specific control kinds. Each calls no hook of its own (value/setValue come
-// in as props) — called directly as a plain function in a test, or reused by
-// a custom renderer that wants Trim's own toggle/segmented/toggle-action
-// markup without the rest of <Trim.Panel>'s auto-discovery/grouping.
-//
-// "use client": not because of a hook, but because each one attaches a real
-// event handler (onChange/onClick) — an interactive component must be a
-// Client Component under the RSC convention regardless of hook usage.
-// @theharborproject/trim/react's <Trim.Panel> (panel.tsx) is built on these.
+// Trim — compatibility re-exports. The actual implementations moved to
+// ../react/controls/*.tsx (granular, individually importable/tree-shakable —
+// see that directory's own files and the package's export map). These
+// names and signatures are kept exactly as they were: an existing
+// `import { ToggleWidget } from "@theharborproject/trim/advanced"` call site
+// needs no change. Nothing here is a second implementation — each export is
+// a one-line forward to its ../react/controls/* counterpart, so there is
+// never a place where the two could drift out of sync.
 
-import type { ReactNode } from "react";
 import type { TrimControl } from "../core/integration";
+import { DefaultBooleanControl } from "../react/controls/boolean";
+import { DefaultSegmentedControl } from "../react/controls/segmented";
+import { DefaultToggleActionControl } from "../react/controls/toggle-action";
 
-export function ToggleWidget({ control, value, setValue }: { control: TrimControl<boolean>; value: boolean | undefined; setValue: (v: boolean) => void }) {
-  return (
-    <label data-trim-control data-trim-kind="toggle">
-      <span data-trim-control-label>{control.label}</span>
-      <input type="checkbox" checked={Boolean(value)} onChange={event => setValue(event.target.checked)} />
-    </label>
-  );
+export { UnsupportedKindFallback } from "../react/controls/unsupported-fallback";
+
+export function ToggleWidget(props: { control: TrimControl<boolean>; value: boolean | undefined; setValue: (v: boolean) => void }) {
+  return <DefaultBooleanControl {...props} />;
 }
 
-export function SegmentedWidget({ groupName, control, value, setValue }: { groupName: string; control: TrimControl<string>; value: string | undefined; setValue: (v: string) => void }) {
-  if (control.kind !== "segmented") return null;
-  return (
-    <fieldset data-trim-control data-trim-kind="segmented">
-      <legend data-trim-control-label>{control.label}</legend>
-      {control.options.map(option => (
-        <label key={String(option.value)} data-trim-option>
-          <input
-            type="radio"
-            name={groupName}
-            checked={value === option.value}
-            onChange={() => setValue(option.value)}
-          />
-          <span>{option.label as ReactNode}</span>
-        </label>
-      ))}
-    </fieldset>
-  );
+export function SegmentedWidget(props: { groupName: string; control: TrimControl<string>; value: string | undefined; setValue: (v: string) => void }) {
+  return <DefaultSegmentedControl {...props} />;
 }
 
-export function ToggleActionWidget({ control, value, setValue }: { control: TrimControl<boolean>; value: boolean | undefined; setValue: (v: boolean) => void }) {
-  return (
-    <button type="button" data-trim-control data-trim-kind="toggle-action" aria-pressed={Boolean(value)} onClick={() => setValue(!value)}>
-      {control.description ?? control.label}
-    </button>
-  );
-}
-
-/** Hook-free, called directly to verify it warns and returns null rather than throwing. */
-export function UnsupportedKindFallback({ control }: { control: TrimControl }) {
-  if (process.env.NODE_ENV !== "production") {
-    console.error(`Trim: <Trim.Panel>'s default renderer has no widget for control kind "${control.kind}" (control "${control.id}"). Provide a custom renderer for it, or leave it out of your own panel.`);
-  }
-  return null;
+export function ToggleActionWidget(props: { control: TrimControl<boolean>; value: boolean | undefined; setValue: (v: boolean) => void }) {
+  return <DefaultToggleActionControl {...props} />;
 }

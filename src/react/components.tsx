@@ -22,11 +22,12 @@
 // file only for the package's own tests) per the same boundary the old
 // lib/trim/index.ts already drew.
 
-import { Children, Fragment, isValidElement, useContext, useEffect, type ReactElement, type ReactNode } from "react";
+import { Children, Fragment, isValidElement, useContext, useEffect, useRef, type ReactElement, type ReactNode } from "react";
 import type { TrimRegistry } from "../core/registry";
 import { TrimRegistryContext, defaultTrimRegistry } from "./registry-context";
 import type { TrimControl, TrimControlKind, TrimCore, TrimIntegrationMeta, SegmentedControl, SegmentedOption, ToggleActionControl, ToggleControl } from "../core/integration";
 import type { TrimBinding } from "../core/bindings";
+import { registerManifestControls, unregisterManifestControls } from "./manifest";
 
 const TRIM_CONTROL = Symbol.for("trim.control");
 // "option" is a valid marker value (identifies <Trim.Option>) but never a
@@ -197,11 +198,51 @@ function Option<V extends string>(props: OptionProps<V>): null {
 // shared with ./hooks.ts, so the headless hooks don't need to import this
 // (heavier, JSX-parsing) file to reach it.
 
-export type RegistryProps = { registry?: TrimRegistry; children?: ReactNode };
+export type RegistryProps = {
+  registry?: TrimRegistry;
+  /** A flat, manifest-declared control list — each becomes a single-control
+   *  integration via ./manifest.ts's adapter (ref "<control.id>.value"),
+   *  registered/unregistered alongside whatever <Trim.Integration>s are
+   *  nested in `children`. Omitting it leaves <Trim.Registry> exactly as it
+   *  was before this prop existed. */
+  controls?: readonly TrimControl[];
+  children?: ReactNode;
+};
 
-/** Provides a registry to nested <Trim.Integration>s. Renders no DOM of its own. */
-function Registry({ registry = defaultTrimRegistry, children }: RegistryProps) {
-  return <TrimRegistryContext.Provider value={registry}>{children}</TrimRegistryContext.Provider>;
+/**
+ * Registers a `controls` list into `registry` via ./manifest.ts's adapter.
+ * Same register-effect/cleanup-effect split as <Integration> below: the
+ * first effect (re-)registers on every `controls` change and only
+ * unregisters ids that dropped out of the list (never a full sweep); the
+ * second, cleanup-only effect unregisters everything this instance still
+ * owns when it actually unmounts (or `registry` itself changes).
+ */
+function ManifestRegistration({ registry, controls }: { registry: TrimRegistry; controls: readonly TrimControl[] }): null {
+  const registeredIds = useRef<Set<string>>(new Set());
+
+  useEffect(() => {
+    registeredIds.current = registerManifestControls(registry, controls, registeredIds.current);
+  }, [registry, controls]);
+
+  useEffect(() => {
+    return () => unregisterManifestControls(registry, registeredIds.current);
+  }, [registry]);
+
+  return null;
+}
+
+/**
+ * Provides a registry to nested <Trim.Integration>s. Renders no DOM of its
+ * own. With no `controls`, this is byte-for-byte the same output as before
+ * `controls` existed — the conditional slot below renders nothing.
+ */
+function Registry({ registry = defaultTrimRegistry, controls, children }: RegistryProps) {
+  return (
+    <TrimRegistryContext.Provider value={registry}>
+      {controls && <ManifestRegistration registry={registry} controls={controls} />}
+      {children}
+    </TrimRegistryContext.Provider>
+  );
 }
 
 export type IntegrationProps = {

@@ -143,18 +143,22 @@ Trim exposes the tokens; the host maps them. Mapping is plain CSS — an
 you; the package has no settings file, CLI, or framework/design-system
 detection, and none is planned as part of its runtime surface.
 
-**Import** — `panel.css` is opt-in; nothing imports it for you, and you can
-skip it entirely and supply every `--trim-*` value yourself:
+**Import** — the default skin is opt-in; nothing imports it for you, and you
+can skip it entirely and supply every `--trim-*` value yourself:
 
 ```ts
-import "@theharborproject/trim/panel.css";
+import "@theharborproject/trim/themes/default.css";
 ```
+
+`@theharborproject/trim/panel.css` is kept as a compatibility alias to the
+exact same built file (not a second copy) — existing imports of it continue
+to work unchanged.
 
 **Stylesheet ordering** — load Trim's optional skin first, then your own
 overrides, so your declarations win the cascade:
 
 ```css
-@import "@theharborproject/trim/panel.css";
+@import "@theharborproject/trim/themes/default.css";
 @import "./trim.css";
 ```
 
@@ -265,10 +269,16 @@ contrast in their own themes.
 ## Architecture
 
 ```
-@theharborproject/trim            core — types, settings engine, registry, bindings, controller. No React import at all.
-@theharborproject/trim/react      the common path — JSX primitives, default renderer, headless hooks, controller + useSettings(). "use client".
-@theharborproject/trim/advanced   low-level primitives for a custom renderer or non-default integration.
-@theharborproject/trim/panel.css  optional stylesheet for the default renderer.
+@theharborproject/trim                          core — types, settings engine, registry, bindings, controller, define*Control() factories. No React import at all.
+@theharborproject/trim/react                     the common path — JSX primitives, default renderer, headless hooks, defineTrimConfig, controller + useSettings(). "use client".
+@theharborproject/trim/react/controls/boolean    DefaultBooleanControl, individually importable/tree-shakable.
+@theharborproject/trim/react/controls/segmented  DefaultSegmentedControl, individually importable/tree-shakable.
+@theharborproject/trim/react/controls/toggle-action  DefaultToggleActionControl, individually importable/tree-shakable.
+@theharborproject/trim/react/controls/unsupported-fallback  UnsupportedKindFallback, individually importable/tree-shakable.
+@theharborproject/trim/react/layouts/sections    DefaultSectionsLayout, the built-in defineTrimConfig-driven layout.
+@theharborproject/trim/advanced                  low-level primitives for a custom renderer or non-default integration.
+@theharborproject/trim/themes/default.css        optional stylesheet for the default renderer.
+@theharborproject/trim/panel.css                 compatibility alias for the same file as themes/default.css.
 ```
 
 **Core never sees your actual values.** Trim has no notion of "theme",
@@ -281,9 +291,12 @@ the React-specific pieces live.
 ```
 src/
 ├── types.ts
-├── core/       settings, registry, integration types, bindings, controller
-├── react/      JSX declarations, default renderer, headless hooks, controller + useSettings()
-└── advanced/   resolution helpers, sorting/grouping, individual kind widgets
+├── core/           settings, registry, integration types, bindings, controller, define*Control() factories
+├── react/          JSX declarations, default renderer, headless hooks, defineTrimConfig, controller + useSettings()
+│   ├── controls/   granular default renderers (DefaultBooleanControl, DefaultSegmentedControl, DefaultToggleActionControl, UnsupportedKindFallback)
+│   └── layouts/    granular default layouts (DefaultSectionsLayout)
+├── advanced/       resolution helpers, sorting/grouping, react/controls/* compatibility re-exports
+└── themes/         default.css, Trim's optional default skin
 ```
 
 ## Control kinds

@@ -1,6 +1,9 @@
 /* Optional default skin: import explicitly. The host owns presentation.
    Only --trim-* tokens are consumed; future resolvers map into this contract.
-   Defaults stay local to each panel. Load consumer overrides after this file. */
+   Defaults stay local to each panel. Load consumer overrides after this file.
+   Published at @theharborproject/trim/themes/default.css (canonical) and
+   @theharborproject/trim/panel.css (compatibility alias, same built file —
+   see package.json's "exports"). No token below changed for the move. */
 
 [data-trim-panel] {
   /* Keep the 0.1.0 surface token as a compatible background alias. */

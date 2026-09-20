@@ -9,19 +9,30 @@
 //
 // Everything here is styled only through data-trim-* attributes — no CSS is
 // imported by this file, and nothing here references a host token (--ink,
-// --surface, ...). panel.css is a separate, optional stylesheet a host may
-// choose to import.
+// --surface, ...). ../themes/default.css (published as
+// @theharborproject/trim/themes/default.css, with @theharborproject/trim/panel.css
+// kept as a compatibility alias to the same file) is a separate, optional
+// stylesheet a host may choose to import.
 //
-// sortByOrder/groupInOrder and the individual kind widgets
-// (ToggleWidget/SegmentedWidget/ToggleActionWidget/UnsupportedKindFallback)
-// live in ../advanced — see that module's header for why. This file only
-// contains the pieces that actually call a hook (<Trim.Panel>, <Trim.Control>)
-// or compose them (<Trim.Section>).
+// sortByOrder/groupInOrder lives in ../advanced — see that module's header
+// for why. The individual kind renderers (DefaultBooleanControl/
+// DefaultSegmentedControl/DefaultToggleActionControl/UnsupportedKindFallback)
+// live in ./controls — imported directly from their canonical location here,
+// not through ../advanced/widgets.tsx's compatibility re-exports, which
+// exist for external `@theharborproject/trim/advanced` consumers, not for
+// this package's own internal wiring. This file only contains the pieces
+// that actually call a hook (<Trim.Panel>, <Trim.Control>) or compose them
+// (<Trim.Section>).
 
-import { useId, type ReactNode } from "react";
+import { useId, useMemo, type ReactNode } from "react";
 import { useTrimControlState, useTrimRegistry } from "./hooks";
 import { groupInOrder } from "../advanced/sorting";
-import { ToggleWidget, SegmentedWidget, ToggleActionWidget, UnsupportedKindFallback } from "../advanced/widgets";
+import { DefaultBooleanControl } from "./controls/boolean";
+import { DefaultSegmentedControl } from "./controls/segmented";
+import { DefaultToggleActionControl } from "./controls/toggle-action";
+import { UnsupportedKindFallback } from "./controls/unsupported-fallback";
+import { DefaultSectionsLayout } from "./layouts/sections";
+import { resolveTrimGroups, warnOnUniquenessViolations, type TrimConfig } from "./config";
 import type { TrimControl } from "../core/integration";
 import type { TrimRegistry } from "../core/registry";
 
@@ -43,11 +54,11 @@ function ControlWidget({ controlRef, registry }: { controlRef: string; registry?
   }
   switch (control.kind) {
     case "toggle":
-      return <ToggleWidget control={control as TrimControl<boolean>} value={value as boolean | undefined} setValue={setValue as (v: boolean) => void} />;
+      return <DefaultBooleanControl control={control as TrimControl<boolean>} value={value as boolean | undefined} setValue={setValue as (v: boolean) => void} />;
     case "segmented":
-      return <SegmentedWidget groupName={`${instanceId}-${controlRef}`} control={control as TrimControl<string>} value={value as string | undefined} setValue={setValue as (v: string) => void} />;
+      return <DefaultSegmentedControl groupName={`${instanceId}-${controlRef}`} control={control as TrimControl<string>} value={value as string | undefined} setValue={setValue as (v: string) => void} />;
     case "toggle-action":
-      return <ToggleActionWidget control={control as TrimControl<boolean>} value={value as boolean | undefined} setValue={setValue as (v: boolean) => void} />;
+      return <DefaultToggleActionControl control={control as TrimControl<boolean>} value={value as boolean | undefined} setValue={setValue as (v: boolean) => void} />;
     default:
       return <UnsupportedKindFallback control={control} />;
   }
@@ -78,7 +89,23 @@ export function Section({ title, collapsed, children }: SectionProps) {
   );
 }
 
-export type PanelProps = { children?: ReactNode; registry?: TrimRegistry };
+export type PanelProps = { children?: ReactNode; config?: TrimConfig; registry?: TrimRegistry };
+
+/**
+ * The config-driven path: resolves `config.groups` once (memoized — the
+ * whole point of this path is that trim.config.tsx already decided order
+ * statically, so this must not re-sort or rediscover anything on every
+ * render), dev-validates is_unique against the live registry, then hands
+ * off to whichever layout the config names — DefaultSectionsLayout for
+ * "sections", or the host's own component when `layout` is a function.
+ */
+function ConfiguredPanel({ config, registry }: { config: TrimConfig; registry?: TrimRegistry }) {
+  const integrations = useTrimRegistry(registry);
+  const groups = useMemo(() => resolveTrimGroups(config.groups), [config.groups]);
+  warnOnUniquenessViolations(groups, integrations); // self-gated — see ./config.ts
+  const Layout = typeof config.layout === "function" ? config.layout : DefaultSectionsLayout;
+  return <Layout groups={groups} registry={registry} />;
+}
 
 function AutoPanel({ registry }: { registry?: TrimRegistry }) {
   const integrations = useTrimRegistry(registry);
@@ -102,13 +129,33 @@ function AutoPanel({ registry }: { registry?: TrimRegistry }) {
 }
 
 /**
- * With no children: discovers every registered integration automatically,
- * grouped by meta.group (registration order, overridable per-integration
- * with meta.order), each control rendered by its kind.
+ * Precedence, most to least specific — `children` always wins, `config` is
+ * the fallback when there are none, auto-discovery is the fallback when
+ * there's neither:
  *
- * With children: a plain, unopinionated container — put <Trim.Section>/
- * <Trim.Control> (or anything else) inside for full control over layout.
+ * - `<Trim.Panel>{children}</Trim.Panel>`: a plain, unopinionated
+ *   container — put <Trim.Section>/<Trim.Control> (or anything else) inside
+ *   for full control over layout. Unchanged since 0.1.
+ * - `<Trim.Panel config={trimConfig} />` (no children): renders through the
+ *   config-driven layout path (ConfiguredPanel above).
+ * - `<Trim.Panel />` (neither): discovers every registered integration
+ *   automatically, grouped by meta.group (registration order, overridable
+ *   per-integration with meta.order), each control rendered by its kind.
+ *   Unchanged since 0.1.
+ *
+ * Both `config` and `children` together is very likely a mistake — nothing
+ * about `children` winning is visible from the call site otherwise — so
+ * `config` is not silently dropped: it's ignored (children still win, the
+ * least surprising choice given `children` already overrode auto-discovery
+ * before `config` existed) but a dev warning names exactly what happened.
  */
-export function Panel({ children, registry }: PanelProps) {
-  return <div data-trim-panel>{children ?? <AutoPanel registry={registry} />}</div>;
+export function Panel({ children, config, registry }: PanelProps) {
+  if (process.env.NODE_ENV !== "production" && children != null && config) {
+    console.error("Trim: <Trim.Panel> received both `config` and `children` — `children` take precedence and `config` is ignored. Remove one.");
+  }
+  return (
+    <div data-trim-panel>
+      {children ?? (config ? <ConfiguredPanel config={config} registry={registry} /> : <AutoPanel registry={registry} />)}
+    </div>
+  );
 }

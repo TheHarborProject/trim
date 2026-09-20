@@ -23,7 +23,7 @@
     "design-system"
   ],
   "sideEffects": [
-    "./dist/react/panel.css"
+    "./dist/themes/default.css"
   ],
   "main": "./dist/core/index.js",
   "types": "./dist/core/index.d.ts",
@@ -36,15 +36,39 @@
       "types": "./dist/react/index.d.ts",
       "default": "./dist/react/index.js"
     },
+    "./react/controls/boolean": {
+      "types": "./dist/react/controls/boolean.d.ts",
+      "default": "./dist/react/controls/boolean.js"
+    },
+    "./react/controls/segmented": {
+      "types": "./dist/react/controls/segmented.d.ts",
+      "default": "./dist/react/controls/segmented.js"
+    },
+    "./react/controls/toggle-action": {
+      "types": "./dist/react/controls/toggle-action.d.ts",
+      "default": "./dist/react/controls/toggle-action.js"
+    },
+    "./react/controls/unsupported-fallback": {
+      "types": "./dist/react/controls/unsupported-fallback.d.ts",
+      "default": "./dist/react/controls/unsupported-fallback.js"
+    },
+    "./react/layouts/sections": {
+      "types": "./dist/react/layouts/sections.d.ts",
+      "default": "./dist/react/layouts/sections.js"
+    },
     "./advanced": {
       "types": "./dist/advanced/index.d.ts",
       "default": "./dist/advanced/index.js"
     },
-    "./panel.css": "./dist/react/panel.css"
+    "./themes/default.css": "./dist/themes/default.css",
+    "./panel.css": "./dist/themes/default.css"
   },
   "files": [
     "dist"
   ],
+  "bin": {
+    "trim": "./dist/cli/bin/trim.js"
+  },
   "engines": {
     "node": ">=18.17"
   },
@@ -63,8 +87,8 @@
     "typescript": "^5"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json && cp src/react/panel.css dist/react/panel.css",
-    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "build": "tsc -p tsconfig.json && mkdir -p dist/themes && cp src/themes/default.css dist/themes/default.css && tsc -p tsconfig.cli.json && chmod +x dist/cli/bin/trim.js && rm -rf dist/cli/templates && mkdir -p dist/cli/templates/default/example/host dist/cli/templates/default/example/trim/renderers && cp -r cli/templates/default/controls dist/cli/templates/default/controls && cp -r cli/templates/default/layouts dist/cli/templates/default/layouts && cp examples/default/host/contrast-store.ts dist/cli/templates/default/example/host/contrast-store.ts && cp examples/default/trim/renderers/custom-contrast.tsx dist/cli/templates/default/example/trim/renderers/custom-contrast.tsx && cp examples/default/example-panel.tsx dist/cli/templates/default/example/example-panel.tsx && cp -r cli/templates/shadcn dist/cli/templates/shadcn",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.cli.json --noEmit",
     "test": "for f in tests/*.mjs; do node \"$f\" || exit 1; done",
     "prepack": "pnpm run build"
   }

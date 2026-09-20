@@ -24,6 +24,14 @@ interface TrimControlBase<Kind extends TrimControlKind, V> {
   label: string;
   description?: string;
   binding: TrimBinding<V>;
+  // Whether this control may be composed into a layout more than once.
+  // Left undefined rather than defaulted here — nothing in the runtime
+  // (registry, resolution, renderers) reads this field; it exists for a
+  // future composition/CLI layer, which treats an absent value as `true`.
+  // Stamping a literal default onto every control object would be a cost
+  // (one more key, forever) paid for a default that "absent means true" at
+  // the one or two call sites that actually care already expresses for free.
+  is_unique?: boolean;
 }
 
 export type ToggleControl = TrimControlBase<"toggle", boolean>;

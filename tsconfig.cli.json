@@ -1,0 +1,26 @@
+{
+  "compilerOptions": {
+    "target": "es2020",
+    "module": "commonjs",
+    "moduleResolution": "node",
+    "lib": ["es2020"],
+    "types": ["node"],
+    "declaration": false,
+    "outDir": "./dist/cli",
+    "rootDir": "./cli",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "isolatedModules": true
+  },
+  "include": ["cli"],
+  // cli/templates/** is copy-paste SOURCE for `trim add` (verbatim host
+  // TSX/TS text, never compiled by this project's own build — see
+  // cli/templates-path.ts's header). It uses JSX and imports
+  // "@theharborproject/trim/..." as an installed CONSUMER would, neither of
+  // which this config's plain-commonjs, no-jsx settings support; a
+  // dedicated test typechecks these files against the real built package
+  // instead (the same self-reference technique examples/default's test
+  // uses), so excluding them here loses no coverage.
+  "exclude": ["cli/templates"]
+}

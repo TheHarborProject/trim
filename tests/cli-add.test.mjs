@@ -1,0 +1,283 @@
+// Tests for `trim add` (cli/commands/add.ts, cli/generators/template-registry.ts,
+// cli/generators/example-plan.ts, cli/templates-path.ts, cli/templates/**).
+//
+// Fixtures live inside the repo tree (mkdtempSync under the repo root),
+// like every other CLI test — @default/example needs the host project's
+// own `typescript` (Node resolution walk-up only finds this repo's own
+// node_modules from inside it) and generated-file typechecking needs the
+// real dist/ build self-referenced by the package's own name.
+import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
+import { createRequire } from 'node:module';
+import { mkdtempSync, mkdirSync, rmSync, readFileSync, writeFileSync, existsSync, readdirSync } from 'node:fs';
+import path from 'node:path';
+
+const root = path.join(import.meta.dirname, '..');
+const pkg = JSON.parse(readFileSync(path.join(root, 'package.json'), 'utf8'));
+
+execFileSync('npm', ['run', 'build'], { cwd: root, stdio: 'pipe' });
+
+const require = createRequire(import.meta.url);
+const { listKnownRefs, findTemplateEntry, TEMPLATE_REGISTRY } = require(path.join(root, 'dist/cli/generators/template-registry.js'));
+const { runAddCommand } = require(path.join(root, 'dist/cli/commands/add.js'));
+const { runInitCommand } = require(path.join(root, 'dist/cli/commands/init.js'));
+const { runNewControlCommand } = require(path.join(root, 'dist/cli/commands/new-control.js'));
+const { UsageError } = require(path.join(root, 'dist/cli/dispatch.js'));
+
+const testRoot = mkdtempSync(path.join(root, '.trim-cli-add-test-'));
+
+const swallowLogs = async (fn) => {
+  const original = console.log;
+  const lines = [];
+  console.log = (...args) => lines.push(args.join(' '));
+  try { await fn(); } finally { console.log = original; }
+  return lines.join('\n');
+};
+
+async function initializedFixture(name, { styling = 'default', useShadcn = false } = {}) {
+  const dir = path.join(testRoot, name);
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(path.join(dir, 'tsconfig.json'), JSON.stringify({ compilerOptions: { moduleResolution: 'bundler' } }), 'utf8');
+  await swallowLogs(() => runInitCommand(dir, async () => ({ useShadcn, styling })));
+  return dir;
+}
+
+function scriptedAsk(answers) {
+  const queue = [...answers];
+  return async (promptText) => {
+    if (queue.length === 0) throw new Error(`scriptedAsk: ran out of answers (last prompt: ${JSON.stringify(promptText)})`);
+    return queue.shift();
+  };
+}
+
+try {
+  // --- static ref registry: every supported ref resolves, unknown ref does not ---
+  {
+    assert.deepEqual(listKnownRefs(), ['@default/controls/boolean', '@default/controls/segmented', '@default/controls/toggle-action', '@default/layouts/sections', '@default/example']);
+    for (const ref of ['@default/controls/boolean', '@default/controls/segmented', '@default/controls/toggle-action', '@default/layouts/sections']) {
+      assert.ok(findTemplateEntry(ref), `${ref} is a known template`);
+    }
+    assert.equal(findTemplateEntry('@default/example'), undefined, '@default/example is handled specially, not through the simple template registry');
+    assert.equal(findTemplateEntry('@shadcn/controls/boolean'), undefined, '@shadcn/controls/boolean is a real ref, but not in the @default-only registry this function looks up — see cli-add-shadcn.test.mjs for its own registry');
+    assert.equal(findTemplateEntry('@default/nonsense'), undefined);
+  }
+
+  // --- unknown ref: a clean UsageError listing what IS available, no filesystem access ---
+  {
+    const dir = path.join(testRoot, 'unknown-ref-no-fs');
+    mkdirSync(dir, { recursive: true }); // deliberately NOT initialized — proves this never touches the project
+    await assert.rejects(runAddCommand(dir, '@bogus/thing'), UsageError);
+    await assert.rejects(runAddCommand(dir, '@bogus/thing'), /unknown template "@bogus\/thing"/);
+    await assert.rejects(runAddCommand(dir, '@bogus/thing'), /@default\/controls\/boolean/, 'the error lists at least one real, available ref');
+  }
+
+  // --- each simple template: first install (create), rerun identical (already installed, no error), then a real conflict ---
+  for (const entry of TEMPLATE_REGISTRY) {
+    const dir = await initializedFixture(`simple-${entry.ref.replace(/[@/]/g, '-')}`);
+
+    const firstOutput = await swallowLogs(() => runAddCommand(dir, entry.ref));
+    assert.match(firstOutput, new RegExp(`^\\+ ${entry.targetPath.replace(/[.[\]]/g, '\\$&')}`, 'm'), 'first install reports a create');
+    assert.ok(existsSync(path.join(dir, entry.targetPath)));
+    const installedContents = readFileSync(path.join(dir, entry.targetPath), 'utf8');
+    assert.match(installedContents, /@theharborproject\/trim/, 'the installed file references the real package');
+    assert.doesNotMatch(installedContents, /\bsrc\//, 'no internal src/** path leaks into the installed file');
+
+    // idempotent rerun: byte-identical file already there -> "already installed", never an error, never rewritten
+    const secondOutput = await swallowLogs(() => runAddCommand(dir, entry.ref));
+    assert.match(secondOutput, /already installed/);
+    assert.equal(readFileSync(path.join(dir, entry.targetPath), 'utf8'), installedContents);
+
+    // a real conflict: hand-edit the installed file, rerun -> UsageError, content untouched
+    const handEdited = installedContents + '\n// hand-edited\n';
+    writeFileSync(path.join(dir, entry.targetPath), handEdited, 'utf8');
+    await assert.rejects(runAddCommand(dir, entry.ref), UsageError);
+    await assert.rejects(runAddCommand(dir, entry.ref), /already exists with different content/);
+    assert.equal(readFileSync(path.join(dir, entry.targetPath), 'utf8'), handEdited, 'a conflicting file is never overwritten');
+  }
+
+  // --- generated imports resolve through the real public export map; templates typecheck against the real built package ---
+  {
+    const templateFiles = TEMPLATE_REGISTRY.map((e) => path.join(root, 'cli/templates', e.templatePath));
+    const importRe = /import\s+(?:.*?\s+from\s+)?["'](@theharborproject\/trim[^"']*)["']/g;
+    const stripComments = (source) => source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');
+    const seenSpecs = new Set();
+    for (const file of templateFiles) {
+      const source = stripComments(readFileSync(file, 'utf8'));
+      for (const match of source.matchAll(importRe)) seenSpecs.add(match[1]);
+      assert.doesNotMatch(source, /\bsrc\//, `${path.relative(root, file)} must not reference an internal src/** path`);
+    }
+    assert.ok(seenSpecs.size >= 3, 'the templates collectively import from more than one @theharborproject/trim subpath');
+    for (const spec of seenSpecs) {
+      assert.doesNotThrow(() => require.resolve(spec, { paths: [root] }), `"${spec}" must resolve through a real exported public subpath`);
+    }
+    execFileSync('node', [
+      'node_modules/typescript/bin/tsc', ...templateFiles.map((f) => path.relative(root, f)),
+      '--noEmit', '--strict', '--module', 'esnext', '--moduleResolution', 'bundler', '--target', 'es2020', '--jsx', 'react-jsx', '--skipLibCheck',
+    ], { cwd: root });
+  }
+
+  // --- @default/example: fresh init -> installs successfully, correct file tree, config groups, typechecks ---
+  {
+    const dir = await initializedFixture('example-fresh');
+    const output = await swallowLogs(() => runAddCommand(dir, '@default/example'));
+    assert.match(output, /Example installed/);
+
+    for (const f of ['trim/controls/theme.trim.ts', 'trim/controls/contrast.trim.ts', 'trim/controls/animations.trim.ts', 'trim/trim.manifest.ts', 'trim/trim.settings.ts', 'trim/trim.config.tsx', 'host/contrast-store.ts', 'trim/renderers/custom-contrast.tsx', 'example-panel.tsx']) {
+      assert.ok(existsSync(path.join(dir, f)), `${f} was installed`);
+    }
+
+    const config = readFileSync(path.join(dir, 'trim/trim.config.tsx'), 'utf8');
+    assert.match(config, /id: "vision"/);
+    assert.match(config, /id: "motion"/);
+    assert.equal((config.match(/"theme"/g) ?? []).length, 1);
+    assert.equal((config.match(/"contrast"/g) ?? []).length, 1);
+    assert.equal((config.match(/"animations"/g) ?? []).length, 2, 'animations is attached twice — the is_unique: false demonstration');
+
+    const panel = readFileSync(path.join(dir, 'example-panel.tsx'), 'utf8');
+    assert.match(panel, /themes\/default\.css/, 'default styling: the panel imports Trim\'s own default theme');
+
+    const relFiles = ['trim/controls/theme.trim.ts', 'trim/controls/contrast.trim.ts', 'trim/controls/animations.trim.ts', 'trim/trim.manifest.ts', 'trim/trim.settings.ts', 'trim/trim.config.tsx', 'host/contrast-store.ts', 'trim/renderers/custom-contrast.tsx', 'example-panel.tsx'].map((p) => path.relative(root, path.join(dir, p)));
+    execFileSync('node', [
+      'node_modules/typescript/bin/tsc', ...relFiles,
+      '--noEmit', '--strict', '--module', 'esnext', '--moduleResolution', 'bundler', '--target', 'es2020', '--jsx', 'react-jsx', '--skipLibCheck',
+    ], { cwd: root });
+  }
+
+  // --- anti-drift: the generated files @default/example installs are BYTE-IDENTICAL to examples/default's ---
+  // --- own checked-in files — proving there is no second, silently-diverging copy of the generator output ---
+  {
+    const dir = await initializedFixture('example-drift-check');
+    await swallowLogs(() => runAddCommand(dir, '@default/example'));
+    for (const f of ['trim/controls/theme.trim.ts', 'trim/controls/contrast.trim.ts', 'trim/controls/animations.trim.ts', 'trim/trim.manifest.ts', 'trim/trim.settings.ts', 'host/contrast-store.ts', 'trim/renderers/custom-contrast.tsx']) {
+      const installed = readFileSync(path.join(dir, f), 'utf8');
+      const canonical = readFileSync(path.join(root, 'examples/default', f), 'utf8');
+      assert.equal(installed, canonical, `${f}: the live installer's output must match examples/default's checked-in file exactly`);
+    }
+    // trim.config.tsx and example-panel.tsx are EXPECTED to differ (see
+    // cli/generators/example-plan.ts's own header: attach never generates
+    // a component override, so "contrast" installs as a bare id here,
+    // unlike examples/default's own hand-wired custom-renderer override).
+  }
+
+  // --- @default/example: rejected when the project already has a declared control ---
+  {
+    const dir = await initializedFixture('example-rejected-existing-control');
+    await swallowLogs(() => runNewControlCommand(dir, 'reduced-motion', scriptedAsk(['1', '', 'n', '1', 'n'])));
+    await assert.rejects(runAddCommand(dir, '@default/example'), UsageError);
+    await assert.rejects(runAddCommand(dir, '@default/example'), /can only be installed into an empty Trim setup/);
+    assert.ok(!existsSync(path.join(dir, 'trim/controls/theme.trim.ts')), 'nothing from the example was installed');
+  }
+
+  // --- @default/example: rejected when trim.config.tsx already has a group ---
+  {
+    const dir = await initializedFixture('example-rejected-existing-group');
+    const configPath = path.join(dir, 'trim/trim.config.tsx');
+    writeFileSync(configPath, readFileSync(configPath, 'utf8').replace('groups: []', 'groups: [{ id: "misc", label: "Misc", controls: [] }]'), 'utf8');
+    await assert.rejects(runAddCommand(dir, '@default/example'), UsageError);
+    await assert.rejects(runAddCommand(dir, '@default/example'), /already contains Trim configuration/);
+  }
+
+  // --- @default/example: not initialized fails safely, no prompting/filesystem writes ---
+  {
+    const dir = path.join(testRoot, 'example-not-initialized');
+    mkdirSync(dir, { recursive: true });
+    await assert.rejects(runAddCommand(dir, '@default/example'), UsageError);
+    await assert.rejects(runAddCommand(dir, '@default/example'), /trim init/);
+  }
+
+  // --- @default/example: TRANSACTIONAL — a conflicting literal file blocks EVERYTHING, including the generated files ---
+  {
+    const dir = await initializedFixture('example-transactional');
+    writeFileSync(path.join(dir, 'example-panel.tsx'), '// a file this project already had, unrelated to Trim\n', 'utf8');
+    await assert.rejects(runAddCommand(dir, '@default/example'), UsageError);
+    assert.ok(!existsSync(path.join(dir, 'trim/controls/theme.trim.ts')), 'no control was created');
+    assert.ok(!existsSync(path.join(dir, 'host/contrast-store.ts')), 'no OTHER literal file was created either — the whole install aborted');
+    assert.match(readFileSync(path.join(dir, 'trim/trim.manifest.ts'), 'utf8'), /export const trimControls = \[\] as const;\n$/, 'manifest still empty');
+    const config = readFileSync(path.join(dir, 'trim/trim.config.tsx'), 'utf8');
+    assert.match(config, /groups: \[\],/, 'config untouched');
+  }
+
+  // --- headless styling: the installed example panel does NOT import Trim's default theme CSS ---
+  {
+    const dir = await initializedFixture('example-headless', { styling: 'headless' });
+    await swallowLogs(() => runAddCommand(dir, '@default/example'));
+    const panel = readFileSync(path.join(dir, 'example-panel.tsx'), 'utf8');
+    assert.doesNotMatch(panel, /themes\/default\.css/, 'headless: no default-theme CSS is secretly injected');
+    assert.doesNotMatch(panel, /\.css/, 'headless: no CSS import of any kind');
+  }
+
+  // --- tokens styling: the installed example panel imports the project's own trim/trim.css, never overwriting it ---
+  {
+    const dir = await initializedFixture('example-tokens', { styling: 'tokens' });
+    const tokensCssBefore = readFileSync(path.join(dir, 'trim/trim.css'), 'utf8');
+    await swallowLogs(() => runAddCommand(dir, '@default/example'));
+    const panel = readFileSync(path.join(dir, 'example-panel.tsx'), 'utf8');
+    assert.match(panel, /import "\.\/trim\/trim\.css";/, 'tokens: the panel imports the project\'s own token-mapped stylesheet');
+    assert.doesNotMatch(panel, /themes\/default\.css/);
+    assert.equal(readFileSync(path.join(dir, 'trim/trim.css'), 'utf8'), tokensCssBefore, 'trim/trim.css itself is never touched by the example installer');
+  }
+
+  // --- shadcn preference never changes @default/... behavior ---
+  {
+    const dir = await initializedFixture('shadcn-does-not-affect-default', { useShadcn: false });
+    mkdirSync(path.join(dir, 'components.json').replace(/components\.json$/, ''), { recursive: true }); // no-op, dir already exists
+    const noShadcnOutput = await swallowLogs(() => runAddCommand(dir, '@default/controls/boolean'));
+    assert.doesNotMatch(noShadcnOutput.toLowerCase(), /shadcn/, '@default/controls/boolean never mentions shadcn, regardless of trim.json');
+  }
+
+  // --- tarball: dist/cli/templates/** ships; raw cli/templates/** source and examples/** never do ---
+  {
+    const json = execFileSync('npm', ['pack', '--dry-run', '--ignore-scripts', '--json'], { cwd: root, encoding: 'utf8' });
+    const files = JSON.parse(json)[pkg.name].files.map((f) => f.path);
+    assert.ok(files.includes('dist/cli/commands/add.js'));
+    assert.ok(files.includes('dist/cli/generators/template-registry.js'));
+    assert.ok(files.includes('dist/cli/generators/example-plan.js'));
+    assert.ok(files.includes('dist/cli/templates-path.js'));
+    for (const entry of TEMPLATE_REGISTRY) {
+      assert.ok(files.includes(`dist/cli/templates/${entry.templatePath}`), `dist/cli/templates/${entry.templatePath} ships`);
+    }
+    assert.ok(files.includes('dist/cli/templates/default/example/example-panel.tsx'));
+    assert.ok(files.includes('dist/cli/templates/default/example/host/contrast-store.ts'));
+    assert.ok(files.includes('dist/cli/templates/default/example/trim/renderers/custom-contrast.tsx'));
+    assert.ok(!files.some((f) => f.startsWith('cli/')), 'raw cli/** source (including cli/templates/**) never ships');
+    assert.ok(!files.some((f) => f.startsWith('examples/')), 'examples/ never ships');
+    assert.ok(!files.some((f) => f.startsWith('.trim-cli-add-test-')), 'no test fixture directory leaks into the tarball');
+    // REGRESSION: the build script's template-copy step must be idempotent
+    // across repeated `npm run build` runs (every test file in this suite
+    // runs it at least once) — `cp -r src dst` nests src INSIDE an
+    // already-existing dst directory on a second run instead of overwriting
+    // it, producing dist/cli/templates/default/controls/controls/*.tsx.
+    // Caught by actually running the build twice in a row, not just reading
+    // the script text.
+    execFileSync('npm', ['run', 'build'], { cwd: root, stdio: 'pipe' });
+    execFileSync('npm', ['run', 'build'], { cwd: root, stdio: 'pipe' });
+    assert.ok(!existsSync(path.join(root, 'dist/cli/templates/default/controls/controls')), 'repeated builds must not nest a duplicate controls/controls directory');
+    assert.ok(!existsSync(path.join(root, 'dist/cli/templates/default/layouts/layouts')), 'repeated builds must not nest a duplicate layouts/layouts directory');
+    assert.deepEqual(
+      readdirSync(path.join(root, 'dist/cli/templates/default/controls')).sort(),
+      ['boolean.tsx', 'segmented.tsx', 'toggle-action.tsx'],
+      'exactly the 3 control templates, nothing extra left over from a stale prior build',
+    );
+  }
+
+  // --- template lookup works from an ACTUAL packed-and-extracted tarball, not just repo-relative dev paths ---
+  {
+    const packDir = mkdtempSync(path.join(testRoot, 'pack-'));
+    const tarballName = execFileSync('npm', ['pack', '--silent', '--pack-destination', packDir], { cwd: root, encoding: 'utf8' }).trim().split('\n').pop();
+    const extractDir = path.join(packDir, 'extracted');
+    mkdirSync(extractDir, { recursive: true });
+    execFileSync('tar', ['xzf', path.join(packDir, tarballName), '-C', extractDir]);
+    const installedBin = path.join(extractDir, 'package/dist/cli/bin/trim.js');
+    assert.ok(existsSync(installedBin));
+
+    const consumerDir = path.join(packDir, 'consumer');
+    mkdirSync(consumerDir, { recursive: true });
+    execFileSync('node', [installedBin, 'add', '@default/controls/boolean'], { cwd: consumerDir });
+    const installedFile = readFileSync(path.join(consumerDir, 'trim/renderers/boolean.tsx'), 'utf8');
+    assert.match(installedFile, /DefaultBooleanControl/, 'the template was correctly resolved from the packed-and-extracted package\'s OWN dist/cli/templates, not a repo-relative dev path');
+  }
+
+  console.log('PASS CLI add: static ref registry (every supported ref resolves, unknown ref is a clean UsageError listing available refs, no filesystem access), each simple template (@default/controls/boolean|segmented|toggle-action, @default/layouts/sections) installs/is idempotent/conflicts safely, generated imports resolve through the real public export map with no internal src/** references and typecheck against the real built package, @default/example (fresh install with correct file tree/config groups/typecheck, anti-drift byte-equality against examples/default\'s own checked-in generator-produced files, rejected on an existing control or existing config group, rejected when not initialized, fully transactional on any literal-file conflict, headless never injects default CSS, tokens imports the project\'s own trim.css without touching it, shadcn preference never affects @default/... behavior), tarball ships dist/cli/templates/** but never raw cli/templates/** or examples/**, and template lookup works from an actual packed-and-extracted tarball');
+} finally {
+  rmSync(testRoot, { recursive: true, force: true });
+}

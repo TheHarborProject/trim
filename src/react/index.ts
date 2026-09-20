@@ -18,6 +18,11 @@ export type { ToggleProps, SegmentedProps, ToggleActionProps, OptionProps, Regis
 export { Panel, Section, Control };
 export type { PanelProps, SectionProps, ControlProps } from "./panel";
 
+export type { TrimControlRendererProps } from "./renderer-contract";
+
+export { defineTrimConfig } from "./config";
+export type { TrimConfig, TrimGroupDef, TrimGroupItem, TrimLayoutProps, TrimResolvedGroup, TrimResolvedGroupItem } from "./config";
+
 /** The full set of JSX primitives under one namespace — Trim.Registry, Trim.Integration, Trim.Toggle, Trim.Segmented, Trim.Option, Trim.ToggleAction, Trim.Panel, Trim.Section, Trim.Control. */
 export const Trim = { Registry, Integration, Toggle, Segmented, Option, ToggleAction, Panel, Section, Control };
 
