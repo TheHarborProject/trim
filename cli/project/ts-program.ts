@@ -1,8 +1,8 @@
-// Trim CLI — builds a host TypeScript Program for `trim detect`'s static
-// analysis. Reuses the exact same host-compiler-resolution technique as
-// cli/project/resolve-typescript.ts (trim attach's own infrastructure) —
-// never a bundled/second TypeScript, never ts-morph, never runtime
-// reflection over require()'d modules.
+// Trim CLI — builds a Program over the HOST PROJECT's own source files for
+// `trim detect`'s static analysis, parsed with Trim's own bundled TypeScript
+// compiler (cli/project/resolve-typescript.ts — trim attach's own
+// infrastructure), never the host's installed `typescript`, never ts-morph,
+// never runtime reflection over require()'d modules.
 //
 // One-shot: builds exactly one ts.Program and one ts.TypeChecker per
 // `trim detect` invocation. No watcher, no incremental build info, no
@@ -10,13 +10,13 @@
 // spec, section 2).
 
 import path from "node:path";
-import { resolveHostTypeScript, type TS } from "./resolve-typescript";
+import { loadTypeScript, type TS } from "./resolve-typescript";
 import { UsageError } from "../dispatch";
 
 export type HostProgram = {
   tsc: TS;
-  program: import("typescript").Program;
-  checker: import("typescript").TypeChecker;
+  program: import("@typescript/typescript6").Program;
+  checker: import("@typescript/typescript6").TypeChecker;
   /**
    * Absolute paths of exactly the files the host's OWN tsconfig
    * include/exclude/files graph resolves to — the scan boundary.
@@ -29,15 +29,9 @@ export type HostProgram = {
   tsconfigPath: string;
 };
 
-/** Throws UsageError for both failure modes this step calls out explicitly: no resolvable TypeScript compiler, and an unparseable tsconfig.json. */
+/** Throws UsageError for both failure modes this step calls out explicitly: a failure to load Trim's bundled TypeScript compiler, and an unparseable tsconfig.json. */
 export function buildHostProgram(cwd: string): HostProgram {
-  const tsc = resolveHostTypeScript(cwd);
-  if (!tsc) {
-    throw new UsageError(
-      "could not resolve a TypeScript compiler from this project (no `typescript` package found via this project's own node_modules). " +
-        "trim detect needs it to safely analyze your project — install `typescript` in this project and try again.",
-    );
-  }
+  const tsc = loadTypeScript();
 
   const tsconfigPath = tsc.findConfigFile(cwd, (f) => tsc.sys.fileExists(f), "tsconfig.json");
   if (!tsconfigPath) {

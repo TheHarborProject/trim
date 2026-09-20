@@ -2,7 +2,7 @@
 // EXISTING trim/controls/*.trim.ts declaration already binds to, so `trim
 // detect` never proposes a second control for a binding a project has
 // already integrated under a different id (this step's own spec, section
-// 14). Structural (AST-based) via the same host TypeScript compiler
+// 14). Structural (AST-based) via the same bundled TypeScript compiler
 // control-uniqueness.ts already uses — never fragile source-text
 // comparison, per that section's own instruction.
 //
@@ -18,7 +18,7 @@
 
 import { readFile } from "node:fs/promises";
 import path from "node:path";
-import type ts from "typescript";
+import type ts from "@typescript/typescript6";
 import type { TS } from "./resolve-typescript";
 import { findDefineControlObjectLiteral } from "./control-uniqueness";
 import { resolveImportTarget } from "./binding-validation";

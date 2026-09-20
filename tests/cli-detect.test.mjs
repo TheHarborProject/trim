@@ -2,12 +2,15 @@
 // cli/project/detect-bindings.ts, cli/project/existing-bindings.ts,
 // cli/generators/detect-plan.ts, cli/prompts/detect-prompts.ts).
 //
-// Fixtures live inside the repo tree (mkdtempSync under the repo root) —
-// detect resolves the HOST PROJECT's own `typescript` via Node's normal
-// node_modules resolution walk-up (same as trim attach), and generated
-// files self-reference the real built package by its own name, neither of
-// which works from a /tmp fixture (one exception, deliberate, below: the
-// "no host TypeScript resolvable" case).
+// Fixtures live inside the repo tree (mkdtempSync under the repo root) so
+// that generated files' self-references to the real built package resolve
+// — NOT because detect needs a host `typescript`: it never touches one. It
+// always parses with Trim's own bundled `@typescript/typescript6` (see
+// cli/project/resolve-typescript.ts), so a host with no `typescript`
+// installed at all still works fine — see the /tmp fixture below (one
+// exception, deliberate), kept outside the repo tree specifically so no
+// `node_modules/typescript` is reachable via Node's resolution walk-up,
+// proving the host's own TypeScript (or lack of it) is irrelevant.
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { createRequire } from 'node:module';
@@ -119,7 +122,13 @@ export const unknownBinding = makeManualBinding<unknown>(null);
 async function detectFixture(name, { moduleResolution = 'bundler', useShadcn = false, extraFiles = {} } = {}) {
   const dir = path.join(testRoot, name);
   mkdirSync(path.join(dir, 'src'), { recursive: true });
-  writeFileSync(path.join(dir, 'tsconfig.json'), JSON.stringify({ compilerOptions: { moduleResolution, strict: true } }), 'utf8');
+  // node16/nodenext require `module` to match `moduleResolution` — an already-invalid pairing without
+  // it happened to be tolerated by whatever TypeScript this fixture was resolving before (host-fallback
+  // walked up to this repo's own TS5 devDependency); Trim's own bundled compiler is stricter, so a
+  // fixture actually meaning to exercise node16 needs the real, valid pairing.
+  const compilerOptions = { moduleResolution, strict: true };
+  if (moduleResolution === 'node16' || moduleResolution === 'nodenext') compilerOptions.module = moduleResolution;
+  writeFileSync(path.join(dir, 'tsconfig.json'), JSON.stringify({ compilerOptions }), 'utf8');
   writeFileSync(path.join(dir, 'src/candidates.ts'), CANDIDATES_SOURCE, 'utf8');
   for (const [relPath, contents] of Object.entries(extraFiles)) {
     const full = path.join(dir, relPath);
@@ -394,16 +403,18 @@ export default defineBooleanControl({ id: "manual", label: "Manual", binding: { 
     assert.equal(normalize(outFalse), normalize(outTrue), 'identical scan/report output regardless of trim.json\'s shadcn preference');
   }
 
-  // --- failure: no host TypeScript resolvable ---
+  // --- host with NO `typescript` installed at all still works: detect never touches the host's TypeScript, only Trim's own bundled compiler ---
   {
     const dir = path.join('/tmp', `trim-detect-no-ts-${process.pid}`);
     mkdirSync(path.join(dir, 'src'), { recursive: true });
     mkdirSync(path.join(dir, 'trim'), { recursive: true });
     writeFileSync(path.join(dir, 'tsconfig.json'), '{}', 'utf8');
+    writeFileSync(path.join(dir, 'src/index.ts'), 'export const x = 1;\n', 'utf8'); // a real (if trivial) root file, so tsconfig parsing itself succeeds — this test is about host TypeScript resolution, not "no inputs found"
     const { serializeTrimMetadata } = require(path.join(root, 'dist/cli/project/trim-metadata.js'));
     writeFileSync(path.join(dir, 'trim/trim.json'), serializeTrimMetadata({ version: 1, shadcn: false, styling: 'default' }), 'utf8');
     try {
-      await assert.rejects(runDetectCommand(dir, async () => ''), /could not resolve a TypeScript compiler/);
+      const out = await swallowLogs(() => runDetectCommand(dir, async () => { throw new Error('no candidates here — detect must never prompt'); }));
+      assert.match(out, /0 controls can be generated safely\./);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -474,7 +485,7 @@ export default defineBooleanControl({ id: "manual", label: "Manual", binding: { 
     assert.ok(existsSync(path.join(consumerDir, 'trim/controls/contrast.trim.ts')), 'trim detect worked from the actual packed-and-extracted tarball, not just repo-relative execution');
   }
 
-  console.log('PASS CLI detect: not initialized fails clearly before any scan/prompt, symbolNameToControlId proposal, scan classification (boolean/segmented ready with literal values retained in order; unrelated get/set-only object never a candidate at all; non-exported/loose-string/numeric/nullable/any/unknown all OBSERVED-or-excluded, never READY), no general "observed" heuristics beyond the mechanical module-local-binding case (React useState/localStorage produce zero candidates, by design), proposed id/label shown as editable defaults, user-customized id/label, duplicate id within a batch reprompts, existing control skipped both by id and by underlying binding source (no fragile text comparison), select All/individually/Cancel (cancel writes nothing), batch transactionality (one invalid entry blocks the whole batch), manifest regeneration (lexical order, existing + detected together), trim.settings.ts/trim.config.tsx byte-identical, generated files typecheck with node16 .js-suffixed imports and no internal/granular Trim imports, shadcn preference has zero effect, clear failures (no host TypeScript, malformed tsconfig, binding disappeared/removed between scan and generation, id conflicts with an existing control), tarball ships detect\'s CLI files, and detect works from an actual packed-and-extracted tarball');
+  console.log('PASS CLI detect: not initialized fails clearly before any scan/prompt, symbolNameToControlId proposal, scan classification (boolean/segmented ready with literal values retained in order; unrelated get/set-only object never a candidate at all; non-exported/loose-string/numeric/nullable/any/unknown all OBSERVED-or-excluded, never READY), no general "observed" heuristics beyond the mechanical module-local-binding case (React useState/localStorage produce zero candidates, by design), proposed id/label shown as editable defaults, user-customized id/label, duplicate id within a batch reprompts, existing control skipped both by id and by underlying binding source (no fragile text comparison), select All/individually/Cancel (cancel writes nothing), batch transactionality (one invalid entry blocks the whole batch), manifest regeneration (lexical order, existing + detected together), trim.settings.ts/trim.config.tsx byte-identical, generated files typecheck with node16 .js-suffixed imports and no internal/granular Trim imports, shadcn preference has zero effect, host with no `typescript` installed at all still scans fine (Trim never touches host TypeScript, only its own bundled compiler), clear failures (malformed tsconfig, binding disappeared/removed between scan and generation, id conflicts with an existing control), tarball ships detect\'s CLI files, and detect works from an actual packed-and-extracted tarball');
 } finally {
   rmSync(testRoot, { recursive: true, force: true });
 }

@@ -30,7 +30,7 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import type { ModuleResolutionMode } from "../project/detect-project";
 import { readTrimMetadata, type Styling, type TrimProjectMetadata } from "../project/trim-metadata";
-import { resolveHostTypeScript } from "../project/resolve-typescript";
+import { loadTypeScript } from "../project/resolve-typescript";
 import { parseTrimConfig, UnsupportedConfigShapeError } from "../project/trim-config-ast";
 import { parseExistingManagedSettings } from "./settings-file";
 import { listExistingControlIds, CONTROLS_DIR, SETTINGS_PATH } from "./new-control-plan";
@@ -152,13 +152,7 @@ async function checkProjectIsEmpty(cwd: string): Promise<TrimProjectMetadata> {
     throw new UsageError(`@default/example can only be installed into an empty Trim setup. ${SETTINGS_PATH} already has Trim-managed setting(s) (${existingSettings.map((s) => s.key).join(", ")}).`);
   }
 
-  const tsc = resolveHostTypeScript(cwd);
-  if (!tsc) {
-    throw new UsageError(
-      "could not resolve a TypeScript compiler from this project (no `typescript` package found via this project's own node_modules). " +
-        "@default/example needs it to safely verify trim/trim.config.tsx is still empty before installing — install `typescript` in this project and try again.",
-    );
-  }
+  const tsc = loadTypeScript();
   const configFullPath = path.join(cwd, CONFIG_PATH);
   let configSource: string;
   try {

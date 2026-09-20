@@ -80,6 +80,9 @@
       "optional": true
     }
   },
+  "dependencies": {
+    "@typescript/typescript6": "^6.0.2"
+  },
   "devDependencies": {
     "@types/node": "^20",
     "@types/react": "^19",

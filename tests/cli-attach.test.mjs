@@ -3,12 +3,14 @@
 // cli/project/resolve-typescript.ts, cli/prompts/attach-prompts.ts).
 //
 // Fixtures live INSIDE the repo tree (mkdtempSync under the repo root, like
-// every other CLI test) — attach resolves the HOST PROJECT's own
-// `typescript` via Node's normal node_modules resolution walk-up, which
-// only finds this repo's own `node_modules/typescript` when the fixture is
-// nested inside it; verified manually before writing this suite that a
-// fixture under /tmp fails that resolution entirely (correctly — that IS
-// the "no host TypeScript" case, exercised deliberately in one test below).
+// every other CLI test) so that generated files' self-references to the
+// real built package resolve — NOT because attach needs a host
+// `typescript`: it never touches one. It always parses with Trim's own
+// bundled `@typescript/typescript6` (see cli/project/resolve-typescript.ts),
+// so a host with no `typescript` installed at all still works fine — see
+// the /tmp fixture below, kept outside the repo tree specifically so no
+// `node_modules/typescript` is reachable via Node's resolution walk-up,
+// proving the host's own TypeScript (or lack of it) is irrelevant.
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { createRequire } from 'node:module';
@@ -318,7 +320,7 @@ export default defineTrimConfig({ layout: "sections", groups });
     assert.throws(() => buildAttachEdit(info, { mode: 'existing-group', groupId: 'vision', position: { before: 'does-not-exist' } }), UsageError);
   }
 
-  // --- no host TypeScript resolvable: fails clearly, not a silent regex fallback ---
+  // --- host with NO `typescript` installed at all still works: attach never touches the host's TypeScript, only Trim's own bundled compiler ---
   {
     const dir = path.join('/tmp', `trim-attach-no-ts-${process.pid}`);
     mkdirSync(path.join(dir, 'trim/controls'), { recursive: true });
@@ -327,7 +329,10 @@ export default defineTrimConfig({ layout: "sections", groups });
     writeFileSync(path.join(dir, 'trim/trim.config.tsx'), DEFAULT_CONFIG, 'utf8');
     writeFileSync(path.join(dir, 'trim/controls/theme.trim.ts'), controlSource('theme'), 'utf8');
     try {
-      await assert.rejects(runAttachCommand(dir, 'theme', async () => ''), /could not resolve a TypeScript compiler/);
+      await swallowLogs(() => runAttachCommand(dir, 'theme', scriptedAsk(['1', 'vision', ''])));
+      const config = readFileSync(path.join(dir, 'trim/trim.config.tsx'), 'utf8');
+      assert.match(config, /id: "vision"/);
+      assert.match(config, /controls: \[\s*"theme",\s*\]/s);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -415,7 +420,7 @@ export default defineTrimConfig({ layout: "sections", groups });
     assert.ok(!files.some((f) => f.startsWith('.trim-cli-attach-test-')), 'no test fixture directory leaks into the tarball');
   }
 
-  console.log('PASS CLI attach: append/before/after positioning, create new group (incl. empty groups array), reprompt (not silent fallback) on invalid input at the "Attach to:"/"Position:"/"Which control?" menus, duplicate-unique rejected before prompting, is_unique:false repeated attachment (string form AND object form both detected/counted, new attachment never clones an existing override), dotted refs + comments + custom imports + custom layout all preserved byte-identical, unsupported dynamic groups/entry shapes fail safely with nothing written, missing config/control/trim.json fail clearly, invalid group id rejected, missing before/after target rejected, no resolvable host TypeScript fails clearly (never a silent regex fallback), transactional (no writes on any failure, and a SUCCESSFUL attach touches only trim.config.tsx — manifest/settings/declaration stay byte-identical), config still typechecks after every edit, a real init->new control->attach(x3) sequence works end to end, tarball ships attach\'s CLI files without test fixtures');
+  console.log('PASS CLI attach: append/before/after positioning, create new group (incl. empty groups array), reprompt (not silent fallback) on invalid input at the "Attach to:"/"Position:"/"Which control?" menus, duplicate-unique rejected before prompting, is_unique:false repeated attachment (string form AND object form both detected/counted, new attachment never clones an existing override), dotted refs + comments + custom imports + custom layout all preserved byte-identical, unsupported dynamic groups/entry shapes fail safely with nothing written, missing config/control/trim.json fail clearly, invalid group id rejected, missing before/after target rejected, host with no `typescript` installed at all still attaches fine (Trim never touches host TypeScript, only its own bundled compiler), transactional (no writes on any failure, and a SUCCESSFUL attach touches only trim.config.tsx — manifest/settings/declaration stay byte-identical), config still typechecks after every edit, a real init->new control->attach(x3) sequence works end to end, tarball ships attach\'s CLI files without test fixtures');
 } finally {
   rmSync(testRoot, { recursive: true, force: true });
 }

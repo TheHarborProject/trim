@@ -18,7 +18,7 @@
 // never guessed into something more specific.
 
 import path from "node:path";
-import type ts from "typescript";
+import type ts from "@typescript/typescript6";
 import type { HostProgram } from "./ts-program";
 import { suggestControlId } from "./control-id";
 

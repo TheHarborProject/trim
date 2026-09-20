@@ -10,7 +10,7 @@
 
 import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { resolveHostTypeScript, type TS } from "../project/resolve-typescript";
+import { loadTypeScript, type TS } from "../project/resolve-typescript";
 import { parseTrimConfig, computeAttachEdit, UnsupportedConfigShapeError, type ParsedConfig, type AttachTarget } from "../project/trim-config-ast";
 import { resolveControlIsUnique } from "../project/control-uniqueness";
 import { controlAlreadyExists, controlFilePath } from "./new-control-plan";
@@ -45,13 +45,7 @@ export async function gatherAttachInfo(cwd: string, id: string): Promise<AttachI
     throw new UsageError(`control "${id}" does not exist. Declare it first: \`trim new control ${id}\`.`);
   }
 
-  const tsc = resolveHostTypeScript(cwd);
-  if (!tsc) {
-    throw new UsageError(
-      "could not resolve a TypeScript compiler from this project (no `typescript` package found via this project's own node_modules). " +
-        "trim attach needs it to safely parse and edit trim/trim.config.tsx in this TypeScript-only 0.2 workflow — install `typescript` in this project and try again.",
-    );
-  }
+  const tsc = loadTypeScript();
 
   const configFullPath = path.join(cwd, CONFIG_PATH);
   let configSource: string;

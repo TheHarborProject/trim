@@ -1,12 +1,12 @@
 // Trim CLI — resolves a declared control's `is_unique` from its real
-// trim/controls/<id>.trim.ts declaration, via the same host TypeScript
+// trim/controls/<id>.trim.ts declaration, via the same bundled TypeScript
 // compiler trim-config-ast.ts uses. Structural (AST-based), not a text
 // scan: a control file is "host-owned" (a human may reformat it freely
 // after generation), so its exact whitespace/formatting cannot be trusted
 // the way trim.settings.ts's machine-only shape can.
 
 import { readFile } from "node:fs/promises";
-import type ts from "typescript";
+import type ts from "@typescript/typescript6";
 import type { TS } from "./resolve-typescript";
 
 /** Exported for ./existing-bindings.ts, which walks the same defineXControl({...}) shape to find an existing control's `binding:` expression. */

@@ -1,5 +1,5 @@
 // Trim CLI — structural (AST-based) reading and minimal-splice editing of
-// trim/trim.config.tsx, using the HOST PROJECT's own TypeScript compiler
+// trim/trim.config.tsx, using Trim's own bundled TypeScript compiler
 // (see ./resolve-typescript.ts). Never reprints or reformats the whole
 // file: every write this module produces is the original source text with
 // one small, precisely-located insertion spliced in — imports, comments,
@@ -13,7 +13,7 @@
 // guess here could silently corrupt a host-owned file or, worse, miss an
 // existing attachment during a uniqueness check.
 
-import type ts from "typescript";
+import type ts from "@typescript/typescript6";
 import type { TS } from "./resolve-typescript";
 
 export class UnsupportedConfigShapeError extends Error {}
