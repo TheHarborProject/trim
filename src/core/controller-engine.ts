@@ -62,10 +62,38 @@ export function createControllerEngine<Schema extends TrimOptionsSchema>(
   function snapshotString() {
     return document.documentElement.getAttribute(stateAttr) || serverSnapshotString;
   }
+
+  // One MutationObserver per engine instance, shared by every subscriber —
+  // not one per subscribe() call. A panel with many controls bound to this
+  // same controller previously meant one redundant observer per mounted
+  // control, all watching the identical attribute and all firing on every
+  // change; they now share the single observer below and are fanned out to
+  // via a plain listener Set (the same notify-a-Set-of-listeners shape
+  // ../core/registry.ts already uses), with disconnect() only once the last
+  // subscriber leaves. External behavior is unchanged: subscribe() still
+  // returns an unsubscribe function, and notification still happens
+  // asynchronously via the browser's real MutationObserver batching — only
+  // the number of observer instances backing it changes.
+  let sharedObserver: MutationObserver | null = null;
+  const listeners = new Set<() => void>();
+
+  function notifyListeners() {
+    for (const listener of listeners) listener();
+  }
+
   function subscribe(notify: () => void) {
-    const observer = new MutationObserver(notify);
-    observer.observe(document.documentElement, { attributes: true, attributeFilter: [stateAttr] });
-    return () => observer.disconnect();
+    listeners.add(notify);
+    if (!sharedObserver) {
+      sharedObserver = new MutationObserver(notifyListeners);
+      sharedObserver.observe(document.documentElement, { attributes: true, attributeFilter: [stateAttr] });
+    }
+    return () => {
+      listeners.delete(notify);
+      if (listeners.size === 0 && sharedObserver) {
+        sharedObserver.disconnect();
+        sharedObserver = null;
+      }
+    };
   }
 
   function writeDocument(settings: TrimSettings<Schema>, motionValue: MotionValue | undefined, systemReduced: boolean) {
@@ -105,8 +133,21 @@ export function createControllerEngine<Schema extends TrimOptionsSchema>(
     apply(seededDefaults(systemPrefersReducedMotion()), false);
   }
 
+  // Single-entry cache keyed on the snapshot string's own value: only one
+  // snapshot is ever "current" at a time, so the last-parsed string/result
+  // pair is all repeat callers (getSnapshot(), every controller() binding
+  // reading the same key, every fan-out listener re-reading after a change)
+  // need to skip a redundant JSON.parse of the exact same string. The
+  // returned object is shared across callers for the same value — callers
+  // read it as plain data (property access only) and must not mutate it.
+  let lastParsedValue: string | undefined;
+  let lastParsedResult: (TrimState<Schema> & { ready: boolean }) | undefined;
+
   function parseState(value: string): TrimState<Schema> & { ready: boolean } {
-    return { ...JSON.parse(value), ready: value !== serverSnapshotString } as TrimState<Schema> & { ready: boolean };
+    if (lastParsedValue === value && lastParsedResult) return lastParsedResult;
+    lastParsedValue = value;
+    lastParsedResult = { ...JSON.parse(value), ready: value !== serverSnapshotString } as TrimState<Schema> & { ready: boolean };
+    return lastParsedResult;
   }
 
   return { serverSnapshotString, snapshotString, parseState, subscribe, apply, restore, reset };
