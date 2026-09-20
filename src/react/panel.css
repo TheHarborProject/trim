@@ -1,27 +1,34 @@
-/* Trim — optional default panel styling. Not imported by panel.tsx itself:
-   a host opts in explicitly. Selects only by the data-trim-* attributes
-   panel.tsx already sets, so it works unchanged with a fully custom
-   renderer too, as long as that renderer keeps the same attributes.
-
-   Every color/space value here is Trim's own — nothing references a host
-   design system's tokens (no --ink, --surface, --signal, ...). A host that
-   wants its own look either overrides these custom properties, or skips
-   importing this file entirely and writes its own CSS against the same
-   data-trim-* selectors. */
+/* Optional default skin: import explicitly. The host owns presentation.
+   Only --trim-* tokens are consumed; future resolvers map into this contract.
+   Defaults stay local to each panel. Load consumer overrides after this file. */
 
 [data-trim-panel] {
-  --trim-ink: #111;
+  /* Keep the 0.1.0 surface token as a compatible background alias. */
   --trim-surface: #fff;
+  --trim-bg: var(--trim-surface);
+  --trim-ink: #111;
+  --trim-muted: #666;
   --trim-line: #ccc;
-  --trim-gap: 0.75rem;
+  --trim-font-family: system-ui, sans-serif;
+  /* rem follows the user's browser text-size preference. */
+  --trim-font-size: 0.875rem;
+  --trim-line-height: 1.4;
   --trim-radius: 4px;
-  /* rem, not px: follows the user's own browser/OS text-size setting
-     (a real accessibility preference), independent of any host site's own
-     text-scaling feature (which would be a ONE:ACCESS-specific coupling
-     this file must not have). */
-  font: 0.875rem/1.4 system-ui, sans-serif;
+  --trim-padding: 8px 12px;
+  --trim-gap: 0.75rem;
+  --trim-control-min-height: 44px;
+  --trim-control-padding: 0;
+  --trim-control-gap: 4px;
+  --trim-section-gap: 8px;
+  --trim-option-gap: 6px;
+  --trim-border-width: 1px;
+  --trim-title-weight: 600;
+  --trim-focus-width: 2px;
+  --trim-focus-offset: 2px;
+
+  font: var(--trim-font-size)/var(--trim-line-height) var(--trim-font-family);
   color: var(--trim-ink);
-  background: var(--trim-surface);
+  background: var(--trim-bg);
   display: flex;
   flex-direction: column;
   gap: var(--trim-gap);
@@ -32,50 +39,76 @@
     --trim-ink: #f2f2f2;
     --trim-surface: #1a1a1a;
     --trim-line: #444;
+    --trim-muted: #aaa;
   }
 }
-
 [data-trim-section] {
-  border: 1px solid var(--trim-line);
+  border: var(--trim-border-width) solid var(--trim-line);
   border-radius: var(--trim-radius);
-  padding: 8px 12px;
+  padding: var(--trim-padding);
 }
 
 [data-trim-section-title] {
-  font-weight: 600;
+  font-weight: var(--trim-title-weight);
   cursor: pointer;
 }
 
 [data-trim-section-body] {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  margin-top: 8px;
+  gap: var(--trim-section-gap);
+  margin-top: var(--trim-section-gap);
 }
 
 [data-trim-control] {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: var(--trim-control-gap);
   border: 0;
-  padding: 0;
+  padding: var(--trim-control-padding);
   margin: 0;
+}
+
+/* Labels enlarge native checkbox/radio hit areas without replacing them.
+   The default minimum target size is 44px and remains host-overridable. */
+[data-trim-control],
+[data-trim-option],
+summary[data-trim-section-title] {
+  min-height: var(--trim-control-min-height);
 }
 
 [data-trim-control][data-trim-kind="toggle"] {
   flex-direction: row;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
+  gap: var(--trim-section-gap);
 }
 
 [data-trim-option] {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--trim-option-gap);
 }
 
 [data-trim-panel] :focus-visible {
-  outline: 2px solid currentColor;
-  outline-offset: 2px;
+  outline: var(--trim-focus-width) solid currentColor;
+  outline-offset: var(--trim-focus-offset);
+}
+
+/* System colors bypass visual tokens, including host token overrides.
+   Native controls retain the browser's forced-color rendering. */
+@media (forced-colors: active) {
+  [data-trim-panel] {
+    color: CanvasText !important;
+    background: Canvas !important;
+  }
+
+  [data-trim-section] {
+    border-color: CanvasText !important;
+  }
+
+  [data-trim-panel] :focus-visible {
+    outline: 2px solid Highlight !important;
+    outline-offset: 2px !important;
+  }
 }
