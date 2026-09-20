@@ -1,0 +1,17 @@
+/* Tailwind v4 host variables: Tailwind ships no universal semantic
+   variables of its own — --background/--foreground-style names are a
+   shadcn/ui convention, not a Tailwind default. A Tailwind-only host
+   defines its own palette and maps those host-defined names to Trim's
+   tokens. Load after "@theharborproject/trim/panel.css". */
+
+@theme {
+  --color-surface: #fff;
+  --color-ink: #111;
+  --color-border: #e2e2e2;
+}
+
+[data-trim-panel] {
+  --trim-bg: var(--color-surface);
+  --trim-ink: var(--color-ink);
+  --trim-line: var(--color-border);
+}

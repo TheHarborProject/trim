@@ -136,27 +136,42 @@ script or attribute your existing system already owns.
 
 ## Styling / CSS customization
 
-Trim provides a default skin, but the host owns presentation.
-Trim components consume only --trim-* tokens.
+Trim ships a default skin, but the host owns presentation: the renderer
+consumes only `--trim-*` custom properties, and that is the entire contract.
+Trim exposes the tokens; the host maps them. Mapping is plain CSS — an
+`@import` order and custom-property overrides — not a resolver Trim runs for
+you; the package has no settings file, CLI, or framework/design-system
+detection, and none is planned as part of its runtime surface.
 
-**Import**
+**Import** — `panel.css` is opt-in; nothing imports it for you, and you can
+skip it entirely and supply every `--trim-*` value yourself:
 
 ```ts
 import "@theharborproject/trim/panel.css";
 ```
 
-**Override minimal** — load your CSS after the default stylesheet:
+**Stylesheet ordering** — load Trim's optional skin first, then your own
+overrides, so your declarations win the cascade:
+
+```css
+@import "@theharborproject/trim/panel.css";
+@import "./trim.css";
+```
+
+`./trim.css` is your own file. The three patterns below are what to put in
+it; pick whichever matches how your host already manages design tokens.
+
+### Vanilla CSS
+
+Set tokens directly, scoped to `[data-trim-panel]` (never `:root`, so panel
+defaults still apply wherever you don't override):
 
 ```css
 [data-trim-panel] {
   --trim-bg: #fff;
   --trim-ink: #111;
 }
-```
 
-**Theme-aware override**
-
-```css
 html[data-theme="dark"] [data-trim-panel] {
   --trim-bg: #090b0a;
   --trim-ink: #f4f1e8;
@@ -167,6 +182,51 @@ html[data-theme="light"] [data-trim-panel] {
   --trim-ink: #171815;
 }
 ```
+
+### Tailwind v4 host variables
+
+Tailwind v4 has no universal semantic variables of its own — names like
+`--background` and `--foreground` are a shadcn/ui convention, not something
+Tailwind ships. A Tailwind-only host defines its own palette (in `@theme` or
+as plain custom properties) and maps *those* names to Trim's tokens:
+
+```css
+/* app.css — host-defined names, not Tailwind defaults */
+@theme {
+  --color-surface: #fff;
+  --color-ink: #111;
+  --color-border: #e2e2e2;
+}
+```
+
+```css
+/* trim.css */
+[data-trim-panel] {
+  --trim-bg: var(--color-surface);
+  --trim-ink: var(--color-ink);
+  --trim-line: var(--color-border);
+}
+```
+
+### shadcn semantic variables
+
+shadcn/ui projects already define semantic variables in `globals.css`
+(`--background`, `--foreground`, `--muted-foreground`, `--border`,
+`--radius`, ...). Because that convention is consistent across shadcn
+projects, it can be mapped directly:
+
+```css
+[data-trim-panel] {
+  --trim-bg: var(--background);
+  --trim-ink: var(--foreground);
+  --trim-muted: var(--muted-foreground);
+  --trim-line: var(--border);
+  --trim-radius: var(--radius);
+}
+```
+
+Runnable versions of all three patterns are in
+[`examples/styling`](./examples/styling).
 
 Defaults are scoped to `[data-trim-panel]`, never `:root`. Without host
 color overrides, the skin follows `prefers-color-scheme`. Set tokens on the
@@ -186,8 +246,7 @@ The complete token contract (light defaults; dark differences in parentheses):
 - `--trim-radius`: `4px`.
 - `--trim-padding`: `8px 12px` (sections).
 - `--trim-gap`: `0.75rem` (panel).
-- `--trim-control-min-height`: `24px` (controls, option labels and summaries;
-  a fixed 24px accessibility floor applies).
+- `--trim-control-min-height`: `44px` (controls, option labels and summaries).
 - `--trim-control-padding`: `0`.
 - `--trim-control-gap`: `4px`.
 - `--trim-section-gap`: `8px` (section body gap/top margin and toggle gap).
@@ -199,26 +258,9 @@ The complete token contract (light defaults; dark differences in parentheses):
 
 Native controls and visible keyboard focus remain intact; no motion is added.
 Forced-colors mode uses system colors and a fixed focus outline in preference
-to visual tokens. Hosts remain responsible for contrast in their own themes.
-
-**Future direction (not implemented):** a future `trim.settings.json` could
-select `"css-resolver": "vanilla" | "tailwind"` (notation for two alternatives,
-not literal JSON). Vanilla would use Trim defaults; Tailwind would map the
-host design system to the same tokens, for example:
-
-```css
-/* Illustrative future resolver output; not part of panel.css. */
-[data-trim-panel] {
-  --trim-bg: var(--color-background);
-  --trim-ink: var(--color-foreground);
-  --trim-muted: var(--color-muted-foreground);
-  --trim-line: var(--color-border);
-}
-```
-
-The renderer would stay unchanged: it only consumes `--trim-*`. There is no
-resolver, settings parser, CLI, Tailwind dependency or separate `tokens.css`
-in this release.
+to visual tokens, and does not read host theme tokens at all — forced-colors
+overrides are never mapped through `--trim-*`. Hosts remain responsible for
+contrast in their own themes.
 
 ## Architecture
 

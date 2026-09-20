@@ -11,7 +11,12 @@ const tokens = new Map(
     value,
   ]),
 );
-for (const name of [
+// The complete public token contract (README "Styling / CSS customization").
+// Every token Trim ships must be named here explicitly, so removing one from
+// panel.css without updating docs/contract fails this test rather than
+// silently shrinking the public surface.
+const publicTokenContract = [
+  "surface",
   "bg",
   "ink",
   "muted",
@@ -24,9 +29,22 @@ for (const name of [
   "gap",
   "control-min-height",
   "control-padding",
-]) {
+  "control-gap",
+  "section-gap",
+  "option-gap",
+  "border-width",
+  "title-weight",
+  "focus-width",
+  "focus-offset",
+];
+for (const name of publicTokenContract) {
   assert.ok(tokens.has(`--trim-${name}`), `required token: ${name}`);
 }
+assert.equal(
+  tokens.size,
+  publicTokenContract.length,
+  "panel.css declares a token not in the documented public contract",
+);
 for (const [, name] of css.matchAll(/(--[\w-]+)/g)) {
   assert.ok(
     name.startsWith("--trim-"),
