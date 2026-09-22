@@ -25,6 +25,34 @@ export function toIntegration(control: TrimControl): TrimCore {
   };
 }
 
+/** Render-only overlay; effect registration remains the source of truth. */
+export function createManifestRegistryView(
+  registry: TrimRegistry,
+  controls: readonly TrimControl[],
+): TrimRegistry {
+  const manifest = new Map<string, TrimCore>();
+  for (const control of controls) manifest.set(control.id, toIntegration(control));
+  let cachedBase: readonly TrimCore[] | undefined;
+  let cachedList: readonly TrimCore[] | undefined;
+  const list = () => {
+    const base = registry.list();
+    if (base === cachedBase && cachedList) return cachedList;
+    const result = base.map(item => manifest.get(item.id) ?? item);
+    const existing = new Set(base.map(item => item.id));
+    for (const item of manifest.values()) if (!existing.has(item.id)) result.push(item);
+    cachedBase = base;
+    cachedList = result;
+    return result;
+  };
+  return {
+    register: integration => registry.register(integration),
+    unregister: id => registry.unregister(id),
+    get(id) { return manifest.get(id) ?? registry.get(id); },
+    list,
+    subscribe: listener => registry.subscribe(listener),
+  };
+}
+
 function warnOnDuplicateManifestIds(controls: readonly TrimControl[]): void {
   const seen = new Set<string>();
   for (const control of controls) {

@@ -11,7 +11,7 @@
 // ../core/define-controls.ts). Composition never appears inside a
 // *.trim.ts control file.
 
-import type { ComponentType } from "react";
+import type { ComponentType, ReactNode } from "react";
 import type { TrimCore } from "../core/integration";
 import type { TrimRegistry } from "../core/registry";
 import { findControl } from "../advanced/resolution";
@@ -61,7 +61,54 @@ export type TrimLayoutProps = {
   registry?: TrimRegistry;
 };
 
+/**
+ * "vanilla" is Trim's own built-in, unstyled-beyond-function shell (see
+ * ../shell/). "headless" — and any other adapter name a host or the CLI
+ * introduces, such as one naming a specific component library's generated
+ * chrome — name host-owned chrome generated elsewhere (e.g. by `trim add`)
+ * into the host's own source tree: this runtime is completely unaware of
+ * any such adapter and never renders anything adapter-specific itself: any
+ * value other than "vanilla" resolves to the exact same passthrough as
+ * "vanilla" + "inline" (see ../shell/resolve.ts). `(string & {})` — rather
+ * than a closed union naming those other adapters here — keeps this file
+ * from ever having to reference one by name (this package's `src/**` stays
+ * unaware of any specific host component library, checked directly by
+ * tests/cli-add-shadcn.test.mjs's "runtime src/** has zero references"
+ * scan) while still preserving "vanilla"/"headless" editor autocomplete —
+ * the standard trick for a literal union that also accepts an arbitrary
+ * string, since plain `string` in the union would otherwise widen and
+ * silently drop the literal suggestions.
+ */
+export type TrimUIAdapter = "vanilla" | "headless" | (string & {});
+
+/**
+ * How the panel is presented relative to its launch point. "inline" is the
+ * 0.1-compatible default — the panel renders exactly where it's mounted,
+ * with no launcher, no overlay, no extra wrapper element at all.
+ */
+export type TrimShell = "popover" | "dialog" | "inline";
+
+/**
+ * The one contract every shell component implements, built-in or custom:
+ * plain open/onOpenChange, the same shape a host would reach for on its
+ * own. Deliberately minimal — a shell decides how `children` (the resolved
+ * layout's output) is presented, never what's inside it.
+ */
+export type TrimShellProps = {
+  children: ReactNode;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+};
+
 export type TrimConfig = {
+  // Both fields optional and both undefined behave exactly like 0.1: no
+  // shell wrapper at all (see ../shell/resolve.ts's "vanilla" + "inline"
+  // passthrough) — adding `ui` here changes nothing for an existing config
+  // that never sets it.
+  ui?: {
+    adapter?: TrimUIAdapter;
+    shell?: TrimShell;
+  };
   // "flat" is deliberately not offered yet — no implementation exists for
   // it in this step, and a union member with nothing behind it is exactly
   // the kind of speculative surface this package avoids.

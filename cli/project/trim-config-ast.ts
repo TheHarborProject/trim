@@ -224,3 +224,53 @@ export function computeAttachEdit(parsed: ParsedConfig, ref: string, target: Att
   const insertion = computeArrayInsertion(parsed.sourceFile, group.controlsArray, itemText, relative);
   return applyInsertion(sourceText, insertion);
 }
+
+/** A group to add via computeReplaceGroupsEdit — the same shape an existing group's `id`/`label`/`controls` fields carry, but as plain data (no AST node) since it doesn't exist in the source yet. */
+export type GroupSpec = { id: string; label: string; controlIds: readonly string[] };
+
+function buildGroupObjectText(itemIndent: string, innerIndent: string, group: GroupSpec): string {
+  const controlLines = group.controlIds.map((id) => `${innerIndent}  ${JSON.stringify(id)},`).join("\n");
+  return `${itemIndent}{\n${innerIndent}id: ${JSON.stringify(group.id)},\n${innerIndent}label: ${JSON.stringify(group.label)},\n${innerIndent}controls: [\n${controlLines}\n${innerIndent}],\n${itemIndent}},`;
+}
+
+/**
+ * Produces the FULL new file text — original source with exactly one
+ * splice, computed entirely in memory before any write — replacing every
+ * group named in `removeGroupIds` with `addGroups`. Unlike
+ * computeAttachEdit's incremental single-item insertion, this reconstructs
+ * the whole `groups: [...]` interior in one pass, which is what lets a
+ * caller remove-then-add without ever writing an intermediate state to
+ * disk (see cli/generators/example-plan.ts's canonical-starter replacement
+ * path, the only caller today).
+ *
+ * Deliberately narrow: refuses (UnsupportedConfigShapeError) unless
+ * `removeGroupIds` names EVERY group currently in the array — this is not
+ * a general partial-removal primitive, only what the canonical-starter
+ * replacement needs (a config whose groups array is known ahead of time,
+ * by the caller's own canonical-shape check, to contain nothing but the
+ * group(s) being removed). A caller needing partial removal would need a
+ * different function, not a relaxation of this one's guard.
+ */
+export function computeReplaceGroupsEdit(parsed: ParsedConfig, sourceText: string, removeGroupIds: readonly string[], addGroups: readonly GroupSpec[]): string {
+  for (const id of removeGroupIds) {
+    if (!parsed.groups.some((g) => g.id === id)) {
+      throw new UnsupportedConfigShapeError(`expected a "${id}" group in trim.config.tsx's \`groups\` array, but none was found.`);
+    }
+  }
+  if (parsed.groups.some((g) => !removeGroupIds.includes(g.id))) {
+    throw new UnsupportedConfigShapeError(
+      "computeReplaceGroupsEdit only supports replacing a `groups` array made up entirely of the group(s) being removed — this is a Trim CLI bug, not a user-facing condition.",
+    );
+  }
+
+  const arrayIndent = lineIndentAt(parsed.sourceFile, parsed.groupsArray.getStart(parsed.sourceFile));
+  const itemIndent = `${arrayIndent}  `;
+  const innerIndent = `${itemIndent}  `;
+
+  const groupTexts = addGroups.map((group) => buildGroupObjectText(itemIndent, innerIndent, group));
+  const newInner = `\n${groupTexts.join("\n")}\n${arrayIndent}`;
+
+  const start = parsed.groupsArray.getStart(parsed.sourceFile) + 1; // right after "["
+  const end = parsed.groupsArray.getEnd() - 1; // right before "]"
+  return sourceText.slice(0, start) + newInner + sourceText.slice(end);
+}

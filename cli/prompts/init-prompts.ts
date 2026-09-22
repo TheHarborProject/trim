@@ -1,73 +1,102 @@
-// Trim CLI — the real, interactive `trim init` prompts. A thin adapter:
-// all it does is turn two questions into an `InitAnswers`, using Node's
-// built-in `readline/promises` (available since Node 18, already this
-// package's minimum). No prompt dependency was added — two yes/no-ish
-// questions with a handful of options don't justify one; this is the same
-// "check whether a tiny handwritten parser is sufficient" call already
-// made for command dispatch, applied to prompting.
+// Trim CLI — the real, interactive `trim init` prompts. A thin adapter that
+// turns a reconciled adapter/shell/styling flow into an `InitAnswers`
+// through the shared `Prompter` seam (cli/prompts/prompter.ts) instead of
+// talking to readline or @inquirer/prompts directly — production usage
+// gets the real, @inquirer/prompts-backed Prompter
+// (cli/prompts/inquirer-prompter.ts), and cli/commands/init.ts's
+// `runInitCommand` takes a `Prompter` the same way every other wizard
+// does, so tests can inject a scripted fake with no TTY at all.
 //
-// cli/commands/init.ts's `runInitCommand` never calls this directly — it
-// takes a `promptForAnswers` function, so tests can supply predetermined
-// answers with no TTY at all.
+// Reconciled flow (no redundant prompts — see this step's own spec):
 //
-// Reads lines via the readline interface's async-iterator form, not
-// sequential `rl.question()` calls: verified empirically that
-// `node:readline/promises`'s `question()` does not reliably resolve a
-// SECOND time once the underlying stdin stream has already reached EOF —
-// which piped (non-TTY) input does immediately, as soon as all of it has
-// been written. The async-iterator form doesn't have this problem: it
-// correctly yields every already-buffered line regardless of how many
-// were queued before the first read, which is exactly the shape a piped
-// answer file (or a test) produces.
+//   1. "UI integration:" — a single select whose value maps directly to
+//      `ui.adapter`. "Use project shadcn" is offered ONLY when
+//      project.shadcnConfigured (mirroring the old useShadcn confirm's own
+//      gating exactly) — never shown otherwise, so a "yes" can never come
+//      from a question that had no real prerequisite behind it.
+//   2. "Panel shell:" — asked only when the chosen adapter HAS a visible
+//      shell concept at all ("vanilla" or "shadcn", never "headless").
+//   3. "How should Trim be styled?" (narrowed to default/tokens — the old
+//      third choice, "headless", is now simply `adapter: "headless"`) —
+//      asked only when `adapter === "vanilla"`: shadcn inherits the host's
+//      own design system automatically, and headless has no Trim-authored
+//      visual output at all, so styling is meaningless for either.
+//   4. "Add Trim theme import to <path>?" — asked only when BOTH (a)
+//      `adapter === "vanilla"` (the only adapter that ever needs a Trim CSS
+//      import at all — see step 3's own reasoning) and (b)
+//      `project.globalStylesheet !== undefined` (a safe, existing global
+//      stylesheet was actually found — see detect-project.ts's
+//      findGlobalStylesheet). A "Yes" here is the only thing that makes
+//      buildInitPlan (cli/generators/init-files.ts) actually edit that
+//      file; "No" (or never asking at all) leaves it exactly as before this
+//      question existed — the printed manual instruction.
 
-import { createInterface } from "node:readline/promises";
 import type { ProjectInfo } from "../project/detect-project";
-import type { InitAnswers, Styling } from "../generators/init-files";
-import { askChoiceWithDefault, askYesNo, type Ask } from "./prompt-utils";
+import type { InitAnswers, VanillaStyling } from "../generators/init-files";
+import type { TrimUIAdapterValue, TrimShellValue } from "../project/trim-metadata";
+import type { Choice, Prompter } from "./prompter";
 
-const STYLING_OPTIONS: readonly Styling[] = ["default", "tokens", "headless"];
+const SHADCN_CHOICE: Choice<TrimUIAdapterValue> = { name: "Use project shadcn", value: "shadcn" };
+const BASE_ADAPTER_CHOICES: readonly Choice<TrimUIAdapterValue>[] = [
+  { name: "Use Trim vanilla UI", value: "vanilla" },
+  { name: "Headless", value: "headless" },
+];
 
-async function promptStyling(ask: Ask): Promise<Styling> {
-  const index = await askChoiceWithDefault(
-    ask,
-    "How should Trim be styled?\n" +
-      "  1) Use Trim default theme (default)\n" +
-      "  2) Use project design tokens\n" +
-      "  3) Fully headless\n" +
-      "> ",
-    STYLING_OPTIONS.length,
-    0,
-  );
-  return STYLING_OPTIONS[index];
-}
+const SHELL_CHOICES: readonly Choice<TrimShellValue>[] = [
+  { name: "Popover (recommended)", value: "popover" },
+  { name: "Dialog", value: "dialog" },
+  { name: "Inline", value: "inline" },
+];
 
-export async function collectInitAnswers(project: ProjectInfo): Promise<InitAnswers> {
-  const rl = createInterface({ input: process.stdin, output: process.stdout });
-  const lines = rl[Symbol.asyncIterator]();
-  const ask: Ask = async (promptText) => {
-    process.stdout.write(promptText);
-    const { value, done } = await lines.next();
-    return done ? "" : value;
-  };
-  try {
-    // "require the prerequisite before accepting Yes": the question is
-    // never even asked when shadcn isn't configured, so `useShadcn: true`
-    // can never come from someone mistakenly answering "y" to a question
-    // that had no real "yes" available — see init-files.ts's own
-    // defense-in-depth check for the case a caller bypasses this prompt
-    // entirely (a test, a future non-interactive mode).
-    let useShadcn = false;
-    if (project.shadcnConfigured) {
-      useShadcn = await askYesNo(ask, "Use shadcn components for generated Trim controls?", true);
-    } else {
-      process.stdout.write(
-        "shadcn does not appear to be configured in this project (no components.json found) — skipping that question.\n" +
-          "Set it up first (https://ui.shadcn.com/docs/installation) and re-run `trim init` to enable it.\n",
-      );
-    }
-    const styling = await promptStyling(ask);
-    return { useShadcn, styling };
-  } finally {
-    rl.close();
+const VANILLA_STYLING_CHOICES: readonly Choice<VanillaStyling>[] = [
+  { name: "Use Trim default theme (default)", value: "default" },
+  { name: "Use project design tokens", value: "tokens" },
+];
+
+const IMPORT_STYLESHEET_CHOICES: readonly Choice<boolean>[] = [
+  { name: "Yes", value: true },
+  { name: "No", value: false },
+];
+
+export async function collectInitAnswers(project: ProjectInfo, prompter: Prompter): Promise<InitAnswers> {
+  // "require the prerequisite before accepting shadcn": the choice is never
+  // even offered when shadcn isn't configured, so `adapter: "shadcn"` can
+  // never come from someone mistakenly picking a choice that wasn't really
+  // available — see init-files.ts's own defense-in-depth check for the
+  // case a caller bypasses this prompt entirely (a test, a future
+  // non-interactive mode).
+  const adapterChoices: Choice<TrimUIAdapterValue>[] = project.shadcnConfigured ? [SHADCN_CHOICE, ...BASE_ADAPTER_CHOICES] : [...BASE_ADAPTER_CHOICES];
+  if (!project.shadcnConfigured) {
+    console.log("shadcn does not appear to be configured in this project (no components.json found) — \"Use project shadcn\" isn't offered.\n" + "Set it up first (https://ui.shadcn.com/docs/installation) and re-run `trim init` to enable it.");
   }
+  const adapter = await prompter.select<TrimUIAdapterValue>({ message: "UI integration:", choices: adapterChoices, default: "vanilla" });
+
+  // No shell concept applies to "headless" at all — see src/react/config.ts's
+  // TrimShell/resolveShell: there is nothing for this question to configure.
+  let shell: TrimShellValue | undefined;
+  if (adapter !== "headless") {
+    shell = await prompter.select<TrimShellValue>({ message: "Panel shell:", choices: [...SHELL_CHOICES], default: "popover" });
+  }
+
+  // Only "vanilla" has a real styling choice: shadcn inherits the host's
+  // own design system automatically ("Trim owns behavior, host owns
+  // presentation"), and headless has no Trim-authored visual output at all.
+  let styling: VanillaStyling | undefined;
+  if (adapter === "vanilla") {
+    styling = await prompter.select<VanillaStyling>({ message: "How should Trim be styled?", choices: [...VANILLA_STYLING_CHOICES], default: "default" });
+  }
+
+  // Only offered when there's actually something safe to edit: a real,
+  // detected global stylesheet, and an adapter that genuinely needs a Trim
+  // CSS import (shadcn/headless never do — see this file's own header).
+  let importStylesheet: boolean | undefined;
+  if (adapter === "vanilla" && project.globalStylesheet !== undefined) {
+    importStylesheet = await prompter.select<boolean>({
+      message: `Add Trim theme import to ${project.globalStylesheet}?`,
+      choices: [...IMPORT_STYLESHEET_CHOICES],
+      default: true,
+    });
+  }
+
+  return { adapter, shell, styling, importStylesheet };
 }

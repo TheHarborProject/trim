@@ -23,7 +23,7 @@
     "design-system"
   ],
   "sideEffects": [
-    "./dist/themes/default.css"
+    "./dist/themes/*.css"
   ],
   "main": "./dist/core/index.js",
   "types": "./dist/core/index.d.ts",
@@ -56,11 +56,30 @@
       "types": "./dist/react/layouts/sections.d.ts",
       "default": "./dist/react/layouts/sections.js"
     },
+    "./react/shell/resolve": {
+      "types": "./dist/react/shell/resolve.d.ts",
+      "default": "./dist/react/shell/resolve.js"
+    },
+    "./react/shell/vanilla-inline": {
+      "types": "./dist/react/shell/vanilla-inline.d.ts",
+      "default": "./dist/react/shell/vanilla-inline.js"
+    },
+    "./react/shell/vanilla-popover": {
+      "types": "./dist/react/shell/vanilla-popover.d.ts",
+      "default": "./dist/react/shell/vanilla-popover.js"
+    },
+    "./react/shell/vanilla-dialog": {
+      "types": "./dist/react/shell/vanilla-dialog.d.ts",
+      "default": "./dist/react/shell/vanilla-dialog.js"
+    },
     "./advanced": {
       "types": "./dist/advanced/index.d.ts",
       "default": "./dist/advanced/index.js"
     },
     "./themes/default.css": "./dist/themes/default.css",
+    "./themes/base.css": "./dist/themes/base.css",
+    "./themes/controls.css": "./dist/themes/controls.css",
+    "./themes/shell.css": "./dist/themes/shell.css",
     "./panel.css": "./dist/themes/default.css"
   },
   "files": [
@@ -81,6 +100,7 @@
     }
   },
   "dependencies": {
+    "@inquirer/prompts": "^8.7.2",
     "@typescript/typescript6": "^6.0.2"
   },
   "devDependencies": {
@@ -90,9 +110,9 @@
     "typescript": "^5"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json && mkdir -p dist/themes && cp src/themes/default.css dist/themes/default.css && tsc -p tsconfig.cli.json && chmod +x dist/cli/bin/trim.js && rm -rf dist/cli/templates && mkdir -p dist/cli/templates/default/example/host dist/cli/templates/default/example/trim/renderers && cp -r cli/templates/default/controls dist/cli/templates/default/controls && cp -r cli/templates/default/layouts dist/cli/templates/default/layouts && cp examples/default/host/contrast-store.ts dist/cli/templates/default/example/host/contrast-store.ts && cp examples/default/trim/renderers/custom-contrast.tsx dist/cli/templates/default/example/trim/renderers/custom-contrast.tsx && cp examples/default/example-panel.tsx dist/cli/templates/default/example/example-panel.tsx && cp -r cli/templates/shadcn dist/cli/templates/shadcn",
-    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.cli.json --noEmit",
+    "build": "tsc -p tsconfig.json && mkdir -p dist/themes && cp src/themes/*.css dist/themes/ && rm -rf dist/cli && tsc -p tsconfig.cli.json && chmod +x dist/cli/bin/trim.js && mkdir -p dist/cli/templates/default/example/host dist/cli/templates/default/example/trim/renderers && cp -r cli/templates/default/controls dist/cli/templates/default/controls && cp -r cli/templates/default/layouts dist/cli/templates/default/layouts && cp examples/default/host/contrast-store.ts dist/cli/templates/default/example/host/contrast-store.ts && cp examples/default/trim/renderers/custom-contrast.tsx dist/cli/templates/default/example/trim/renderers/custom-contrast.tsx && cp examples/default/example-panel.tsx dist/cli/templates/default/example/example-panel.tsx && cp -r cli/templates/shadcn dist/cli/templates/shadcn",
     "test": "for f in tests/*.mjs; do node \"$f\" || exit 1; done",
-    "prepack": "pnpm run build"
+    "prepack": "pnpm run build",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.cli.json --noEmit"
   }
 }

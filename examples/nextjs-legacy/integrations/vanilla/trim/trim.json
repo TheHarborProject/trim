@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "shadcn": false,
+  "styling": "default",
+  "ui": {
+    "adapter": "vanilla",
+    "shell": "popover"
+  }
+}

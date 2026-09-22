@@ -14,13 +14,14 @@
 // `runAttachCommand` is the whole command, decoupled from process.cwd()
 // and real stdin — `attachCommand` (the actual dispatch.ts CommandHandler)
 // supplies the real ones. Tests call `runAttachCommand` directly with a
-// fixture cwd and a scripted Ask (see cli/prompts/attach-prompts.ts), no
-// TTY needed.
+// fixture cwd and a scripted `Prompter` (see cli/prompts/prompter.ts and
+// cli/prompts/attach-prompts.ts), no TTY needed.
 
 import { readTrimMetadata } from "../project/trim-metadata";
 import { gatherAttachInfo, buildAttachEdit, applyAttachEdit } from "../generators/attach-plan";
 import { collectAttachAnswers } from "../prompts/attach-prompts";
-import { createReadlineAsk, type Ask } from "../prompts/new-control-prompts";
+import { inquirerPrompter } from "../prompts/inquirer-prompter";
+import type { Prompter } from "../prompts/prompter";
 import { UsageError, type CommandHandler } from "../dispatch";
 
 function describePosition(position: "append" | { before: string } | { after: string }): string {
@@ -28,14 +29,14 @@ function describePosition(position: "append" | { before: string } | { after: str
   return "before" in position ? `before "${position.before}"` : `after "${position.after}"`;
 }
 
-export async function runAttachCommand(cwd: string, id: string, ask: Ask): Promise<void> {
+export async function runAttachCommand(cwd: string, id: string, prompter: Prompter): Promise<void> {
   const metadata = await readTrimMetadata(cwd);
   if (!metadata) {
     throw new UsageError("no trim/trim.json found — this project hasn't been initialized for Trim yet. Run `trim init` first.");
   }
 
   const info = await gatherAttachInfo(cwd, id);
-  const answers = await collectAttachAnswers(info, ask);
+  const answers = await collectAttachAnswers(info, prompter);
   const newConfigText = buildAttachEdit(info, answers);
   await applyAttachEdit(info.configFullPath, newConfigText);
 
@@ -53,10 +54,5 @@ export async function runAttachCommand(cwd: string, id: string, ask: Ask): Promi
 export const attachCommand: CommandHandler = async (args) => {
   const [id] = args;
   if (!id) throw new UsageError("Usage: trim attach <control-id>");
-  const { ask, close } = createReadlineAsk();
-  try {
-    await runAttachCommand(process.cwd(), id, ask);
-  } finally {
-    close();
-  }
+  await runAttachCommand(process.cwd(), id, inquirerPrompter);
 };

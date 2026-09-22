@@ -34,6 +34,8 @@ try {
     'src/react/registry-context.ts', 'src/react/hooks.ts', 'src/react/renderer-contract.ts', 'src/react/config.ts', 'src/react/panel.tsx',
     'src/react/controls/boolean.tsx', 'src/react/controls/segmented.tsx',
     'src/react/controls/toggle-action.tsx', 'src/react/controls/unsupported-fallback.tsx', 'src/react/layouts/sections.tsx',
+    'src/react/shell/resolve.ts', 'src/react/shell/vanilla-inline.tsx', 'src/react/shell/vanilla-popover.tsx',
+    'src/react/shell/vanilla-dialog.tsx', 'src/react/shell/use-shell-dismiss.ts',
     'src/advanced/resolution.ts', 'src/advanced/sorting.ts', 'src/advanced/widgets.tsx',
     '--outDir', dir, '--module', 'commonjs', '--target', 'es2020', '--jsx', 'react-jsx', '--skipLibCheck',
   ], { cwd: root });

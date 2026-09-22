@@ -32,6 +32,34 @@ const swallowLogs = async (fn) => {
   return lines.join('\n');
 };
 
+/** A scripted fake `Prompter` (cli/prompts/prompter.ts) — no TTY/stdin involved. `select()` answers are 1-indexed. */
+function scriptedAsk(answers) {
+  const queue = [...answers];
+  function pop(message) {
+    if (queue.length === 0) throw new Error(`scriptedAsk: ran out of answers (last prompt: ${JSON.stringify(message)})`);
+    return queue.shift();
+  }
+  return {
+    async input(opts) { return pop(opts.message); },
+    async select(opts) {
+      const raw = pop(opts.message);
+      const choice = opts.choices[Number(raw) - 1];
+      if (!choice) throw new Error(`scriptedAsk: select got out-of-range answer ${JSON.stringify(raw)} for "${opts.message}"`);
+      return choice.value;
+    },
+    async confirm(opts) {
+      const raw = pop(opts.message);
+      if (typeof raw === 'boolean') return raw;
+      if (raw === '') return opts.default ?? false;
+      return raw === 'y' || raw === 'yes';
+    },
+    async checkbox(opts) {
+      const indices = new Set(pop(opts.message));
+      return opts.choices.filter((_, i) => indices.has(i + 1)).map((c) => c.value);
+    },
+  };
+}
+
 const STUB_COMPONENT_SOURCE = {
   'switch.tsx': `import * as React from "react";
 export function Switch(props: { id?: string; checked?: boolean; onCheckedChange?: (checked: boolean) => void; "aria-describedby"?: string }) {
@@ -77,7 +105,10 @@ async function shadcnFixture(name, {
   writeFileSync(path.join(dir, 'tsconfig.json'), JSON.stringify({
     compilerOptions: { moduleResolution: 'bundler', baseUrl: '.', paths: { [pathAliasPattern]: [pathAliasTarget] } },
   }), 'utf8');
-  await swallowLogs(() => runInitCommand(dir, async () => ({ useShadcn: false, styling: 'default' })));
+  // No components.json exists yet -> "Use project shadcn" isn't offered, so
+  // the adapter select's choices are [vanilla, headless]; "1"/"1"/"1" =
+  // vanilla, popover (shell), default (styling).
+  await swallowLogs(() => runInitCommand(dir, scriptedAsk(['1', '1', '1'])));
 
   if (withShadcn) {
     const content = componentsJsonContent ?? JSON.stringify({ aliases: { ui: uiAlias, components: uiAlias.replace(/\/ui$/, ''), utils: uiAlias.replace(/\/ui$/, '/lib/utils') } });

@@ -8,6 +8,8 @@
 // weight once real option parsing (multi-value flags, prompts) is needed —
 // not before.
 
+import { isExitPromptError } from "./prompts/prompter";
+
 /**
  * Any expected, non-crash command failure meant to be printed cleanly
  * (no stack trace) and end the process with exit code 1 — bad invocation
@@ -83,6 +85,18 @@ export async function runCli(argv: readonly string[], commands: CommandTable): P
     if (error instanceof UsageError) {
       process.stderr.write(`trim: ${error.message}\n`);
       return 1;
+    }
+    // Ctrl+C during any @inquirer/prompts prompt — the single outermost
+    // point every command's execution errors already pass through. Printed
+    // clean (no stack trace) and given the SAME exit-code convention an
+    // explicit in-menu "Cancel" choice already uses: those never throw,
+    // they print their own "Cancelled — ..." line and return normally, so
+    // the command resolves and this function returns 0 — never the 1
+    // UsageError gets. Ctrl+C matches that: it's a deliberate cancellation,
+    // not a usage error.
+    if (isExitPromptError(error)) {
+      console.log("Trim cancelled.");
+      return 0;
     }
     throw error;
   }

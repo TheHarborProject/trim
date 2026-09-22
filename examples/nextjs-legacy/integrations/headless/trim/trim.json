@@ -1,0 +1,8 @@
+{
+  "version": 1,
+  "shadcn": false,
+  "styling": "headless",
+  "ui": {
+    "adapter": "headless"
+  }
+}

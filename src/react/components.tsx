@@ -27,7 +27,7 @@ import type { TrimRegistry } from "../core/registry";
 import { TrimRegistryContext, defaultTrimRegistry } from "./registry-context";
 import type { TrimControl, TrimControlKind, TrimCore, TrimIntegrationMeta, SegmentedControl, SegmentedOption, ToggleActionControl, ToggleControl } from "../core/integration";
 import type { TrimBinding } from "../core/bindings";
-import { registerManifestControls, unregisterManifestControls } from "./manifest";
+import { createManifestRegistryView, registerManifestControls, unregisterManifestControls } from "./manifest";
 
 const TRIM_CONTROL = Symbol.for("trim.control");
 // "option" is a valid marker value (identifies <Trim.Option>) but never a
@@ -237,8 +237,9 @@ function ManifestRegistration({ registry, controls }: { registry: TrimRegistry; 
  * `controls` existed — the conditional slot below renders nothing.
  */
 function Registry({ registry = defaultTrimRegistry, controls, children }: RegistryProps) {
+  const contextRegistry = controls ? createManifestRegistryView(registry, controls) : registry;
   return (
-    <TrimRegistryContext.Provider value={registry}>
+    <TrimRegistryContext.Provider value={contextRegistry}>
       {controls && <ManifestRegistration registry={registry} controls={controls} />}
       {children}
     </TrimRegistryContext.Provider>

@@ -75,11 +75,58 @@ function attachFixture(name, { controlIds = [], uniqueness = {}, configSource = 
   return dir;
 }
 
+/**
+ * A scripted fake `Prompter` (cli/prompts/prompter.ts) — same queue-of-
+ * answers idea the old scriptedAsk used, methods resolve immediately, no
+ * TTY/stdin involved. `select()` answers are 1-indexed, matching the
+ * on-screen choice order. `input()`'s scripted answer runs through
+ * `opts.validate` when present, reprompting on failure — the real,
+ * @inquirer/prompts-backed `input()`'s own behavior.
+ */
 function scriptedAsk(answers) {
   const queue = [...answers];
-  return async (promptText) => {
-    if (queue.length === 0) throw new Error(`scriptedAsk: ran out of answers (last prompt: ${JSON.stringify(promptText)})`);
+  function pop(message) {
+    if (queue.length === 0) throw new Error(`scriptedAsk: ran out of answers (last prompt: ${JSON.stringify(message)})`);
     return queue.shift();
+  }
+  return {
+    async input(opts) {
+      while (true) {
+        const raw = pop(opts.message);
+        const answer = raw === '' ? (opts.default ?? '') : String(raw);
+        if (opts.validate) {
+          const result = await opts.validate(answer);
+          if (result !== true) { console.log(result); continue; }
+        }
+        return answer;
+      }
+    },
+    async select(opts) {
+      const raw = pop(opts.message);
+      const choice = opts.choices[Number(raw) - 1];
+      if (!choice) throw new Error(`scriptedAsk: select got out-of-range answer ${JSON.stringify(raw)} for "${opts.message}" (${opts.choices.length} choices)`);
+      return choice.value;
+    },
+    async confirm(opts) {
+      const raw = pop(opts.message);
+      if (typeof raw === 'boolean') return raw;
+      if (raw === '') return opts.default ?? false;
+      return raw === 'y' || raw === 'yes';
+    },
+    async checkbox(opts) {
+      const indices = new Set(pop(opts.message));
+      return opts.choices.filter((_, i) => indices.has(i + 1)).map((c) => c.value);
+    },
+  };
+}
+
+/** A Prompter whose every method calls `onCall()` and returns a harmless value — for asserting a command never prompts at all before it fails. */
+function trackingPrompter(onCall) {
+  return {
+    async input() { onCall(); return ''; },
+    async select(opts) { onCall(); return opts.choices[0]?.value; },
+    async confirm() { onCall(); return false; },
+    async checkbox() { onCall(); return []; },
   };
 }
 
@@ -143,36 +190,11 @@ try {
     assert.match(config, /controls: \[\s*"theme",\s*\]/s);
   }
 
-  // --- REGRESSION: invalid non-empty answers reprompt at every attach menu, ---
-  // --- never silently fall back to "create new group" / first item / append ---
-  {
-    const dir = attachFixture('reprompt-on-invalid', {
-      controlIds: ['existing', 'theme'],
-      configSource: DEFAULT_CONFIG.replace('groups: []', 'groups: [\n    { id: "vision", label: "Vision", controls: ["existing"] },\n  ]'),
-    });
-    const output = await swallowLogs(() =>
-      // Attach to: invalid(9), invalid(abc), then "1" (vision — the only group; "2" is + Create new group).
-      // Position: invalid(9), then blank -> the documented Append default IS accepted here.
-      runAttachCommand(dir, 'theme', scriptedAsk(['9', 'abc', '1', '9', ''])),
-    );
-    assert.match(output, /Please enter a number from 1 to 2\./, '"Attach to:" menu (no default) reprompts on out-of-range input');
-    assert.match(output, /Please enter a number from 1 to 3, or press Enter for the default\./, '"Position:" menu keeps its documented default but still reprompts on invalid input');
-    const config = readFileSync(path.join(dir, 'trim/trim.config.tsx'), 'utf8');
-    assert.match(config, /controls: \[\s*"existing",\s*"theme",?\s*\]/s, 'the attach eventually succeeded once valid input was given (appended, per the accepted blank default)');
-  }
-  {
-    // "Which control?" (before/after target) has no default either.
-    const dir = attachFixture('reprompt-target-choice', {
-      controlIds: ['theme', 'contrast'],
-      configSource: DEFAULT_CONFIG.replace('groups: []', 'groups: [\n    { id: "vision", label: "Vision", controls: ["theme"] },\n  ]'),
-    });
-    // Attach to vision (1) -> Before (2) -> which control?: invalid(9), invalid(blank), then "1" (theme).
-    const output = await swallowLogs(() => runAttachCommand(dir, 'contrast', scriptedAsk(['1', '2', '9', '', '1'])));
-    assert.match(output, /Please enter a number from 1 to 1\./, '"Which control?" menu (no default) reprompts on out-of-range and blank input');
-    const config = readFileSync(path.join(dir, 'trim/trim.config.tsx'), 'utf8');
-    const order = [...config.matchAll(/"(theme|contrast)"/g)].map((m) => m[1]);
-    assert.deepEqual(order, ['contrast', 'theme'], 'still correctly placed before the target once a valid choice was given');
-  }
+  // NOTE: the pre-migration "REGRESSION: invalid non-empty answers reprompt
+  // at every attach menu" test that used to live here no longer applies —
+  // "Attach to:"/"Position:"/"Which control?" are now real select() widgets
+  // (arrow-key navigation) with no "type an out-of-range number" input to
+  // reject; that's now @inquirer/prompts's own, untested-by-us, UI concern.
 
   // --- duplicate unique control rejected: fails before prompting, writes nothing ---
   {
@@ -183,7 +205,7 @@ try {
     const before = readFileSync(path.join(dir, 'trim/trim.config.tsx'), 'utf8');
     let asked = false;
     await assert.rejects(
-      runAttachCommand(dir, 'theme', async () => { asked = true; return ''; }),
+      runAttachCommand(dir, 'theme', trackingPrompter(() => { asked = true; })),
       UsageError,
     );
     assert.equal(asked, false, 'a unique control already attached is rejected before prompting');
@@ -228,7 +250,7 @@ try {
       controlIds: ['contrast'],
       configSource: DEFAULT_CONFIG.replace('groups: []', 'groups: [\n    { id: "vision", label: "Vision", controls: [{ id: "contrast", component: CustomContrast }] },\n  ]'),
     });
-    await assert.rejects(runAttachCommand(dir, 'contrast', async () => ''), UsageError);
+    await assert.rejects(runAttachCommand(dir, 'contrast', trackingPrompter(() => {})), UsageError);
   }
 
   // --- dotted refs, comments, custom imports, custom layout: all preserved byte-identical outside the edited region ---
@@ -272,14 +294,14 @@ const groups = getGroups();
 export default defineTrimConfig({ layout: "sections", groups });
 `;
     const dir = attachFixture('dynamic-groups', { controlIds: ['theme'], configSource: dynamicConfig });
-    await assert.rejects(runAttachCommand(dir, 'theme', async () => ''), UsageError);
+    await assert.rejects(runAttachCommand(dir, 'theme', trackingPrompter(() => {})), UsageError);
     assert.equal(readFileSync(path.join(dir, 'trim/trim.config.tsx'), 'utf8'), dynamicConfig, 'untouched');
   }
   {
     // a groups ARRAY that's literal, but with an entry that isn't a plain object/string, is equally unsupported
     const weirdConfig = DEFAULT_CONFIG.replace('groups: []', 'groups: [{ id: "vision", label: "Vision", controls: [someVariable] }]');
     const dir = attachFixture('unsupported-item', { controlIds: ['theme'], configSource: weirdConfig });
-    await assert.rejects(runAttachCommand(dir, 'theme', async () => ''), UsageError);
+    await assert.rejects(runAttachCommand(dir, 'theme', trackingPrompter(() => {})), UsageError);
     assert.equal(readFileSync(path.join(dir, 'trim/trim.config.tsx'), 'utf8'), weirdConfig);
   }
 
@@ -287,13 +309,13 @@ export default defineTrimConfig({ layout: "sections", groups });
   {
     const dir = attachFixture('missing-config', { controlIds: ['theme'] });
     rmSync(path.join(dir, 'trim/trim.config.tsx'));
-    await assert.rejects(runAttachCommand(dir, 'theme', async () => ''), UsageError);
+    await assert.rejects(runAttachCommand(dir, 'theme', trackingPrompter(() => {})), UsageError);
   }
 
   // --- missing control fails safely, suggests `trim new control` ---
   {
     const dir = attachFixture('missing-control');
-    await assert.rejects(runAttachCommand(dir, 'nonexistent', async () => ''), /new control nonexistent/);
+    await assert.rejects(runAttachCommand(dir, 'nonexistent', trackingPrompter(() => {})), /new control nonexistent/);
   }
 
   // --- not initialized (no trim.json) fails safely ---
@@ -301,7 +323,7 @@ export default defineTrimConfig({ layout: "sections", groups });
     const dir = path.join(testRoot, 'not-initialized');
     mkdirSync(dir, { recursive: true });
     writeFileSync(path.join(dir, 'tsconfig.json'), '{}', 'utf8');
-    await assert.rejects(runAttachCommand(dir, 'theme', async () => ''), UsageError);
+    await assert.rejects(runAttachCommand(dir, 'theme', trackingPrompter(() => {})), UsageError);
   }
 
   // --- invalid group id ---
@@ -348,7 +370,7 @@ export default defineTrimConfig({ layout: "sections", groups });
     const beforeManifest = readFileSync(path.join(dir, 'trim/trim.manifest.ts'), 'utf8');
     const beforeSettings = readFileSync(path.join(dir, 'trim/trim.settings.ts'), 'utf8');
     const beforeControl = readFileSync(path.join(dir, 'trim/controls/theme.trim.ts'), 'utf8');
-    await assert.rejects(runAttachCommand(dir, 'theme', async () => ''), UsageError);
+    await assert.rejects(runAttachCommand(dir, 'theme', trackingPrompter(() => {})), UsageError);
     assert.equal(readFileSync(path.join(dir, 'trim/trim.config.tsx'), 'utf8'), beforeConfig);
     assert.equal(readFileSync(path.join(dir, 'trim/trim.manifest.ts'), 'utf8'), beforeManifest, 'manifest byte-identical');
     assert.equal(readFileSync(path.join(dir, 'trim/trim.settings.ts'), 'utf8'), beforeSettings, 'settings byte-identical');
@@ -387,16 +409,22 @@ export default defineTrimConfig({ layout: "sections", groups });
     mkdirSync(dir, { recursive: true });
     writeFileSync(path.join(dir, 'tsconfig.json'), JSON.stringify({ compilerOptions: { moduleResolution: 'bundler' } }), 'utf8');
 
-    await swallowLogs(() => runInitCommand(dir, async () => ({ useShadcn: false, styling: 'default' })));
+    // No components.json -> "Use project shadcn" isn't offered, so the
+    // adapter select's choices are [vanilla, headless]; "1"/"1"/"1" =
+    // vanilla, popover (shell), default (styling).
+    await swallowLogs(() => runInitCommand(dir, scriptedAsk(['1', '1', '1'])));
     await swallowLogs(() => runNewControlCommand(dir, 'theme', scriptedAsk(['2', '', 'n', 'light', '', 'dark', '', '', '1', '1'])));
-    await swallowLogs(() => runAttachCommand(dir, 'theme', scriptedAsk(['1', 'vision', ''])));
+    // "Attach to:" now lists the seeded "starter" group first (choice 1),
+    // then "+ Create new group" (choice 2) — one more choice than before
+    // `trim init` started seeding a group of its own.
+    await swallowLogs(() => runAttachCommand(dir, 'theme', scriptedAsk(['2', 'vision', ''])));
 
     await swallowLogs(() => runNewControlCommand(dir, 'animations', scriptedAsk(['1', '', 'y', '1', 'y'])));
-    await swallowLogs(() => runAttachCommand(dir, 'animations', scriptedAsk(['1', '1']))); // vision, append
-    await swallowLogs(() => runAttachCommand(dir, 'animations', scriptedAsk(['2', 'motion', '']))); // new group "motion"
+    await swallowLogs(() => runAttachCommand(dir, 'animations', scriptedAsk(['2', '1']))); // starter, vision, append
+    await swallowLogs(() => runAttachCommand(dir, 'animations', scriptedAsk(['3', 'motion', '']))); // starter, vision, new group "motion"
     let thirdAttachFailed = false;
     try {
-      await swallowLogs(() => runAttachCommand(dir, 'animations', scriptedAsk(['1', '1'])));
+      await swallowLogs(() => runAttachCommand(dir, 'animations', scriptedAsk(['2', '1'])));
     } catch {
       thirdAttachFailed = true; // is_unique:false — a THIRD attach must NOT fail
     }
@@ -406,7 +434,7 @@ export default defineTrimConfig({ layout: "sections", groups });
     assert.match(config, /"theme"/);
     assert.equal(thirdAttachFailed, false);
 
-    const files = ['trim/controls/theme.trim.ts', 'trim/controls/animations.trim.ts', 'trim/trim.manifest.ts', 'trim/trim.settings.ts', 'trim/trim.config.tsx'].map((p) => path.relative(root, path.join(dir, p)));
+    const files = ['trim/controls/starter.trim.ts', 'trim/controls/theme.trim.ts', 'trim/controls/animations.trim.ts', 'trim/trim.manifest.ts', 'trim/trim.settings.ts', 'trim/trim.config.tsx'].map((p) => path.relative(root, path.join(dir, p)));
     execFileSync('node', ['node_modules/typescript/bin/tsc', ...files, '--noEmit', '--strict', '--module', 'esnext', '--moduleResolution', 'bundler', '--target', 'es2020', '--jsx', 'react-jsx', '--skipLibCheck'], { cwd: root });
   }
 
@@ -414,13 +442,13 @@ export default defineTrimConfig({ layout: "sections", groups });
   {
     const json = execFileSync('npm', ['pack', '--dry-run', '--ignore-scripts', '--json'], { cwd: root, encoding: 'utf8' });
     const files = JSON.parse(json)[pkg.name].files.map((f) => f.path);
-    for (const f of ['dist/cli/commands/attach.js', 'dist/cli/generators/attach-plan.js', 'dist/cli/project/trim-config-ast.js', 'dist/cli/project/control-uniqueness.js', 'dist/cli/project/resolve-typescript.js', 'dist/cli/prompts/attach-prompts.js', 'dist/cli/prompts/prompt-utils.js']) {
+    for (const f of ['dist/cli/commands/attach.js', 'dist/cli/generators/attach-plan.js', 'dist/cli/project/trim-config-ast.js', 'dist/cli/project/control-uniqueness.js', 'dist/cli/project/resolve-typescript.js', 'dist/cli/prompts/attach-prompts.js', 'dist/cli/prompts/prompter.js', 'dist/cli/prompts/inquirer-prompter.js']) {
       assert.ok(files.includes(f), `${f} should ship in dist/cli`);
     }
     assert.ok(!files.some((f) => f.startsWith('.trim-cli-attach-test-')), 'no test fixture directory leaks into the tarball');
   }
 
-  console.log('PASS CLI attach: append/before/after positioning, create new group (incl. empty groups array), reprompt (not silent fallback) on invalid input at the "Attach to:"/"Position:"/"Which control?" menus, duplicate-unique rejected before prompting, is_unique:false repeated attachment (string form AND object form both detected/counted, new attachment never clones an existing override), dotted refs + comments + custom imports + custom layout all preserved byte-identical, unsupported dynamic groups/entry shapes fail safely with nothing written, missing config/control/trim.json fail clearly, invalid group id rejected, missing before/after target rejected, host with no `typescript` installed at all still attaches fine (Trim never touches host TypeScript, only its own bundled compiler), transactional (no writes on any failure, and a SUCCESSFUL attach touches only trim.config.tsx — manifest/settings/declaration stay byte-identical), config still typechecks after every edit, a real init->new control->attach(x3) sequence works end to end, tarball ships attach\'s CLI files without test fixtures');
+  console.log('PASS CLI attach: append/before/after positioning, create new group (incl. empty groups array), duplicate-unique rejected before prompting, is_unique:false repeated attachment (string form AND object form both detected/counted, new attachment never clones an existing override), dotted refs + comments + custom imports + custom layout all preserved byte-identical, unsupported dynamic groups/entry shapes fail safely with nothing written, missing config/control/trim.json fail clearly, invalid group id rejected, missing before/after target rejected, host with no `typescript` installed at all still attaches fine (Trim never touches host TypeScript, only its own bundled compiler), transactional (no writes on any failure, and a SUCCESSFUL attach touches only trim.config.tsx — manifest/settings/declaration stay byte-identical), config still typechecks after every edit, a real init->new control->attach(x3) sequence works end to end, tarball ships attach\'s CLI files without test fixtures');
 } finally {
   rmSync(testRoot, { recursive: true, force: true });
 }

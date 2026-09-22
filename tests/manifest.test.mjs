@@ -14,7 +14,7 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { createRequire } from 'node:module';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 
 const root = path.join(import.meta.dirname, '..');
@@ -22,7 +22,8 @@ const dir = mkdtempSync(path.join(root, '.trim-manifest-test-'));
 try {
   execFileSync('node', [
     'node_modules/typescript/bin/tsc',
-    'src/core/bindings.ts', 'src/core/integration.ts', 'src/core/registry.ts', 'src/advanced/resolution.ts', 'src/react/manifest.ts',
+    'src/core/index.ts', 'src/core/bindings.ts', 'src/core/integration.ts', 'src/core/registry.ts', 'src/advanced/resolution.ts', 'src/react/manifest.ts', 'src/react/config.ts',
+    '--jsx', 'react-jsx',
     '--outDir', dir, '--module', 'commonjs', '--target', 'es2020', '--skipLibCheck',
   ], { cwd: root });
 
@@ -38,6 +39,44 @@ try {
 
   const noopBind = { get: () => false, set: () => {}, subscribe: () => () => {} };
   const control = (id, label, description) => ({ id, kind: 'toggle', label, description, binding: noopBind });
+
+  // The actual headless fixture must resolve every configured reference
+  // through the same manifest adapter/resolver used by the panel.
+  {
+    const ts = require('typescript');
+    const core = require(path.join(dir, 'core', 'index.js'));
+    const configApi = require(path.join(dir, 'react', 'config.js'));
+    const cache = new Map();
+    const loadFixture = (file) => {
+      if (cache.has(file)) return cache.get(file);
+      const output = ts.transpileModule(readFileSync(file, 'utf8'), {
+        compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 },
+      }).outputText;
+      const module = { exports: {} };
+      const fixtureRequire = (id) => {
+        if (id === '@theharborproject/trim') return core;
+        if (id === '@theharborproject/trim/react') return configApi;
+        assert.ok(id.startsWith('.'), `unexpected fixture import: ${id}`);
+        return loadFixture(path.resolve(path.dirname(file), `${id}.ts`));
+      };
+      new Function('require', 'module', 'exports', output)(fixtureRequire, module, module.exports);
+      cache.set(file, module.exports);
+      return module.exports;
+    };
+    const fixture = path.join(root, 'examples/headless/trim');
+    const config = loadFixture(path.join(fixture, 'trim.config.tsx')).default;
+    const { trimControls } = loadFixture(path.join(fixture, 'trim.manifest.ts'));
+    assert.deepEqual(trimControls.map(({ id }) => id), ['starter']);
+    assert.deepEqual(config.groups.map(({ id }) => id), ['starter']);
+    const registry = createTrimRegistry();
+    registerManifestControls(registry, trimControls, new Set());
+    for (const group of configApi.resolveTrimGroups(config.groups)) {
+      for (const item of group.items) {
+        assert.ok(findControl(registry.list(), item.ref), `unresolved fixture control: ${item.ref}`);
+      }
+    }
+    assert.equal(errors.length, 0, 'headless fixture resolves without warnings');
+  }
 
   // --- toIntegration: one control -> one integration, keyed "value" ---
   {

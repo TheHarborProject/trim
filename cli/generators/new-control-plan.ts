@@ -52,7 +52,8 @@ export async function listExistingControlIds(cwd: string): Promise<string[]> {
   }
 }
 
-function toManagedSetting(spec: NewControlSpec): TrimManagedSetting {
+/** Exported for ./example-plan.ts's canonical-starter replacement path, which needs the same spec -> TrimManagedSetting mapping `trim new control` uses, computed for a fixed list of specs rather than one at a time. */
+export function toManagedSetting(spec: NewControlSpec): TrimManagedSetting {
   if (spec.binding.mode !== "trim-managed") {
     throw new Error("toManagedSetting called on a non-Trim-managed spec — this is a CLI bug, not a user-facing condition.");
   }

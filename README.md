@@ -235,30 +235,29 @@ Runnable versions of all three patterns are in
 Defaults are scoped to `[data-trim-panel]`, never `:root`. Without host
 color overrides, the skin follows `prefers-color-scheme`. Set tokens on the
 panel itself, rather than an ancestor whose values the local defaults replace.
-
 The complete token contract (light defaults; dark differences in parentheses):
 
 - `--trim-bg`: `var(--trim-surface)`.
-- `--trim-surface`: `#fff` (dark: `#1a1a1a`); retained for 0.1.0 compatibility.
-- `--trim-ink`: `#111` (dark: `#f2f2f2`).
-- `--trim-muted`: `var(--trim-ink)`; available for host/custom renderer secondary
-  text. The current default renderer has no separate muted text styling.
-- `--trim-line`: `#ccc` (dark: `#444`).
+- `--trim-surface`: `#fff` (dark: `#18181b`).
+- `--trim-ink`: `#18181b` (dark: `#f4f4f5`).
+- `--trim-muted`: `#71717a` (dark: `#a1a1aa`).
+- `--trim-line`: `#e4e4e7` (dark: `#3f3f46`).
 - `--trim-font-family`: `system-ui, sans-serif`.
 - `--trim-font-size`: `0.875rem`.
 - `--trim-line-height`: `1.4`.
-- `--trim-radius`: `4px`.
-- `--trim-padding`: `8px 12px` (sections).
-- `--trim-gap`: `0.75rem` (panel).
-- `--trim-control-min-height`: `44px` (controls, option labels and summaries).
+- `--trim-radius`: `12px`.
+- `--trim-padding`: `16px`.
+- `--trim-gap`: `1rem`.
+- `--trim-control-min-height`: `40px`.
 - `--trim-control-padding`: `0`.
-- `--trim-control-gap`: `4px`.
-- `--trim-section-gap`: `8px` (section body gap/top margin and toggle gap).
-- `--trim-option-gap`: `6px`.
+- `--trim-control-gap`: `6px`.
+- `--trim-section-gap`: `12px`.
+- `--trim-option-gap`: `8px`.
 - `--trim-border-width`: `1px`.
 - `--trim-title-weight`: `600`.
 - `--trim-focus-width`: `2px`.
 - `--trim-focus-offset`: `2px`.
+- `--trim-focus-color`: `#7c3aed` (dark: `#a78bfa`).
 
 Native controls and visible keyboard focus remain intact; no motion is added.
 Forced-colors mode uses system colors and a fixed focus outline in preference
@@ -276,6 +275,10 @@ contrast in their own themes.
 @theharborproject/trim/react/controls/toggle-action  DefaultToggleActionControl, individually importable/tree-shakable.
 @theharborproject/trim/react/controls/unsupported-fallback  UnsupportedKindFallback, individually importable/tree-shakable.
 @theharborproject/trim/react/layouts/sections    DefaultSectionsLayout, the built-in defineTrimConfig-driven layout.
+@theharborproject/trim/react/shell/resolve       resolveShell(adapter, shell) — picks a built-in shell for TrimConfig.ui.
+@theharborproject/trim/react/shell/vanilla-inline   VanillaInlineShell — no wrapper, the default.
+@theharborproject/trim/react/shell/vanilla-popover  VanillaPopoverShell — floating launcher + anchored popover.
+@theharborproject/trim/react/shell/vanilla-dialog   VanillaDialogShell — floating launcher + centered modal.
 @theharborproject/trim/advanced                  low-level primitives for a custom renderer or non-default integration.
 @theharborproject/trim/themes/default.css        optional stylesheet for the default renderer.
 @theharborproject/trim/panel.css                 compatibility alias for the same file as themes/default.css.
@@ -294,7 +297,8 @@ src/
 ├── core/           settings, registry, integration types, bindings, controller, define*Control() factories
 ├── react/          JSX declarations, default renderer, headless hooks, defineTrimConfig, controller + useSettings()
 │   ├── controls/   granular default renderers (DefaultBooleanControl, DefaultSegmentedControl, DefaultToggleActionControl, UnsupportedKindFallback)
-│   └── layouts/    granular default layouts (DefaultSectionsLayout)
+│   ├── layouts/    granular default layouts (DefaultSectionsLayout)
+│   └── shell/      TrimConfig.ui resolution + built-in "vanilla" shells (inline/popover/dialog)
 ├── advanced/       resolution helpers, sorting/grouping, react/controls/* compatibility re-exports
 └── themes/         default.css, Trim's optional default skin
 ```

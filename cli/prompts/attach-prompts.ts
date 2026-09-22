@@ -1,65 +1,68 @@
-// Trim CLI — the real, interactive `trim attach` prompts. Same technique
-// as the other wizards: readline's async-iterator form for the real,
-// stdin-backed Ask (see init-prompts.ts's header for the verified reason),
-// and a plain `Ask` function signature so tests can inject a scripted one.
+// Trim CLI — the real, interactive `trim attach` prompts, through the
+// shared `Prompter` seam (cli/prompts/prompter.ts) — same pattern as every
+// other wizard, so tests can inject a scripted fake `Prompter` with no TTY
+// at all.
 
 import { isValidControlId, suggestControlId, suggestControlLabel } from "../project/control-id";
-import { askChoiceWithDefault, askRequiredChoice, type Ask } from "./prompt-utils";
+import type { Choice, Prompter } from "./prompter";
 import type { AttachInfo, AttachAnswers } from "../generators/attach-plan";
 import { UsageError } from "../dispatch";
 
-export type { Ask };
-
-async function collectNewGroupAnswers(ask: Ask): Promise<{ groupId: string; groupLabel: string }> {
-  const groupId = (await ask("Group id: ")).trim();
+/** Keeps today's throw-on-invalid-id behavior — no `validate:` reprompt. */
+async function collectNewGroupAnswers(prompter: Prompter): Promise<{ groupId: string; groupLabel: string }> {
+  const groupId = (await prompter.input({ message: "Group id:" })).trim();
   if (!isValidControlId(groupId)) {
     const suggestion = suggestControlId(groupId);
     throw new UsageError(`"${groupId}" is not a valid group id — use kebab-case (lowercase letters, digits, hyphens), e.g. "${suggestion || "my-group"}".`);
   }
   const suggestion = suggestControlLabel(groupId);
-  const groupLabel = (await ask(`Group label: [${suggestion}] `)).trim() || suggestion;
+  const groupLabel = (await prompter.input({ message: "Group label:", default: suggestion })).trim() || suggestion;
   return { groupId, groupLabel };
 }
 
-/**
- * `Attach to:` lists every existing group plus "+ Create new group" — no
- * default: which group a control lands in (or that a new one is created)
- * is a real decision, so every answer, including blank, must be an
- * explicit choice. (Previously any unmatched input, including no groups
- * existing at all, silently meant "create new group" — an unintentional
- * side effect of the old permissive parser, not a deliberate default.)
- */
-export async function collectAttachAnswers(info: AttachInfo, ask: Ask): Promise<AttachAnswers> {
-  const groups = info.parsed.groups;
-  const groupLines = groups.map((g, i) => `  ${i + 1}) ${g.label ?? g.id}${g.label ? ` (${g.id})` : ""}`);
-  const createIndex = groups.length;
-  const createLine = `  ${createIndex + 1}) + Create new group`;
-  const choice = await askRequiredChoice(ask, `Attach to:\n${[...groupLines, createLine].join("\n")}\n> `, groups.length + 1);
+const CREATE_NEW_GROUP = Symbol("create-new-group");
 
-  if (choice === createIndex) {
-    const { groupId, groupLabel } = await collectNewGroupAnswers(ask);
+/**
+ * `Attach to:` lists every existing group plus "+ Create new group". Groups
+ * are addressed by their own (already-unique) id; the "create new" choice
+ * uses a distinct symbol value so it can never collide with a real group id.
+ */
+export async function collectAttachAnswers(info: AttachInfo, prompter: Prompter): Promise<AttachAnswers> {
+  const groups = info.parsed.groups;
+  const groupChoices: Choice<string | typeof CREATE_NEW_GROUP>[] = groups.map((g) => ({
+    name: g.label ? `${g.label} (${g.id})` : g.id,
+    value: g.id,
+  }));
+  groupChoices.push({ name: "+ Create new group", value: CREATE_NEW_GROUP });
+
+  const choice = await prompter.select<string | typeof CREATE_NEW_GROUP>({ message: "Attach to:", choices: groupChoices });
+
+  if (choice === CREATE_NEW_GROUP) {
+    const { groupId, groupLabel } = await collectNewGroupAnswers(prompter);
     return { mode: "new-group", groupId, groupLabel };
   }
 
-  const group = groups[choice];
+  const group = groups.find((g) => g.id === choice)!;
   if (group.items.length === 0) {
     // Nothing to be "before" or "after" yet — append is the only sensible position.
     return { mode: "existing-group", groupId: group.id, position: "append" };
   }
 
-  // Append has a real, documented default (blank or "1"); "2"/"3" pick
-  // before/after explicitly; anything else reprompts.
-  const positionChoice = await askChoiceWithDefault(ask, "Position:\n  1) Append (default)\n  2) Before an existing control\n  3) After an existing control\n> ", 3, 0);
-  if (positionChoice === 0) {
+  const positionChoice = await prompter.select<"append" | "before" | "after">({
+    message: "Position:",
+    choices: [
+      { name: "Append", value: "append" },
+      { name: "Before an existing control", value: "before" },
+      { name: "After an existing control", value: "after" },
+    ],
+    default: "append",
+  });
+  if (positionChoice === "append") {
     return { mode: "existing-group", groupId: group.id, position: "append" };
   }
 
-  // No default here: which existing control to position relative to is a
-  // real choice — previously unmatched input silently meant the first item,
-  // another unintentional side effect of the old permissive parser.
-  const itemLines = group.items.map((item, i) => `  ${i + 1}) ${item.ref}`).join("\n");
-  const targetIndex = await askRequiredChoice(ask, `Which control?\n${itemLines}\n> `, group.items.length);
-  const targetRef = group.items[targetIndex].ref;
+  const itemChoices: Choice<string>[] = group.items.map((item) => ({ name: item.ref, value: item.ref }));
+  const targetRef = await prompter.select<string>({ message: "Which control?", choices: itemChoices });
 
-  return { mode: "existing-group", groupId: group.id, position: positionChoice === 1 ? { before: targetRef } : { after: targetRef } };
+  return { mode: "existing-group", groupId: group.id, position: positionChoice === "before" ? { before: targetRef } : { after: targetRef } };
 }

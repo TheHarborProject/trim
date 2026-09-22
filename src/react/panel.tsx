@@ -24,7 +24,7 @@
 // that actually call a hook (<Trim.Panel>, <Trim.Control>) or compose them
 // (<Trim.Section>).
 
-import { useId, useMemo, type ReactNode } from "react";
+import { useId, useMemo, useState, type ReactNode } from "react";
 import { useTrimControlState, useTrimRegistry } from "./hooks";
 import { groupInOrder } from "../advanced/sorting";
 import { DefaultBooleanControl } from "./controls/boolean";
@@ -33,6 +33,7 @@ import { DefaultToggleActionControl } from "./controls/toggle-action";
 import { UnsupportedKindFallback } from "./controls/unsupported-fallback";
 import { DefaultSectionsLayout } from "./layouts/sections";
 import { resolveTrimGroups, warnOnUniquenessViolations, type TrimConfig } from "./config";
+import { resolveShell } from "./shell/resolve";
 import type { TrimControl } from "../core/integration";
 import type { TrimRegistry } from "../core/registry";
 
@@ -98,13 +99,28 @@ export type PanelProps = { children?: ReactNode; config?: TrimConfig; registry?:
  * render), dev-validates is_unique against the live registry, then hands
  * off to whichever layout the config names — DefaultSectionsLayout for
  * "sections", or the host's own component when `layout` is a function.
+ *
+ * The resolved layout's output is then wrapped by whichever shell
+ * `config.ui` resolves to (see ./shell/resolve.ts) — `open` is owned here,
+ * not by the shell itself, so it's this one `useState` that decides whether
+ * a config-driven panel starts open or closed, same as any other controlled
+ * component. `config.ui` omitted (or `{ adapter: "vanilla", shell: "inline" }`
+ * explicitly) resolves to a passthrough with no wrapper element at all — see
+ * ./shell/vanilla-inline.tsx — so this changes nothing for a config that
+ * never sets `ui`.
  */
 function ConfiguredPanel({ config, registry }: { config: TrimConfig; registry?: TrimRegistry }) {
   const integrations = useTrimRegistry(registry);
   const groups = useMemo(() => resolveTrimGroups(config.groups), [config.groups]);
   warnOnUniquenessViolations(groups, integrations); // self-gated — see ./config.ts
   const Layout = typeof config.layout === "function" ? config.layout : DefaultSectionsLayout;
-  return <Layout groups={groups} registry={registry} />;
+  const Shell = useMemo(() => resolveShell(config.ui?.adapter, config.ui?.shell), [config.ui?.adapter, config.ui?.shell]);
+  const [open, setOpen] = useState(false);
+  return (
+    <Shell open={open} onOpenChange={setOpen}>
+      <Layout groups={groups} registry={registry} />
+    </Shell>
+  );
 }
 
 function AutoPanel({ registry }: { registry?: TrimRegistry }) {

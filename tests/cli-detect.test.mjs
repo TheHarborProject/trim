@@ -14,7 +14,7 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { createRequire } from 'node:module';
-import { mkdtempSync, mkdirSync, rmSync, readFileSync, writeFileSync, existsSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, rmSync, readFileSync, writeFileSync, existsSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 
 const root = path.join(import.meta.dirname, '..');
@@ -41,17 +41,74 @@ const swallowLogs = async (fn) => {
   return lines.join('\n');
 };
 
-/** `.prompts` on the returned function records every prompt text it was asked, in order — a scripted Ask never echoes its prompt to console.log the way the real, stdin-backed one writes to stdout, so a test that needs to see the actual prompt text (e.g. a shown default value) reads it from here instead. */
+/**
+ * A scripted fake `Prompter` (cli/prompts/prompter.ts) — same queue-of-
+ * answers idea the old scriptedAsk used, methods resolve immediately, no
+ * TTY/stdin involved.
+ *
+ * `select()` answers are 1-indexed, matching the on-screen choice order.
+ * `checkbox()`'s scripted answer is an array of 1-indexed positions to
+ * check (replacing the old per-candidate confirm() sequence with ONE
+ * screen's worth of checked/unchecked choices). `input()`'s scripted
+ * answer runs through `opts.validate` when present, reprompting on
+ * failure — the real, @inquirer/prompts-backed `input()`'s own behavior,
+ * so a script can still exercise askCandidateId's reprompt-on-invalid loop.
+ *
+ * `.calls` on the returned object records every `{kind, message, default}`
+ * it was asked, in order — a scripted Prompter never echoes its prompt to
+ * console.log the way the real, @inquirer/prompts-backed one renders to the
+ * terminal, so a test that needs to see the actual message/default (e.g. a
+ * shown default value) reads it from here instead.
+ */
 function scriptedAsk(answers) {
   const queue = [...answers];
-  const prompts = [];
-  const ask = async (promptText) => {
-    prompts.push(promptText);
-    if (queue.length === 0) throw new Error(`scriptedAsk: ran out of answers (last prompt: ${JSON.stringify(promptText)})`);
+  const calls = [];
+  function pop(kind, opts) {
+    calls.push({ kind, message: opts.message, default: opts.default });
+    if (queue.length === 0) throw new Error(`scriptedAsk: ran out of answers (last prompt: ${JSON.stringify(opts.message)})`);
     return queue.shift();
+  }
+  const prompter = {
+    calls,
+    async input(opts) {
+      while (true) {
+        const raw = pop('input', opts);
+        const answer = raw === '' ? (opts.default ?? '') : String(raw);
+        if (opts.validate) {
+          const result = await opts.validate(answer);
+          if (result !== true) { console.log(result); continue; } // reprompt: consume the next queued answer, echoing the message the real UI would show
+        }
+        return answer;
+      }
+    },
+    async select(opts) {
+      const raw = pop('select', opts);
+      const choice = opts.choices[Number(raw) - 1];
+      if (!choice) throw new Error(`scriptedAsk: select got out-of-range answer ${JSON.stringify(raw)} for "${opts.message}" (${opts.choices.length} choices)`);
+      return choice.value;
+    },
+    async confirm(opts) {
+      const raw = pop('confirm', opts);
+      if (typeof raw === 'boolean') return raw;
+      if (raw === '') return opts.default ?? false;
+      return raw === 'y' || raw === 'yes';
+    },
+    async checkbox(opts) {
+      const indices = new Set(pop('checkbox', opts));
+      return opts.choices.filter((_, i) => indices.has(i + 1)).map((c) => c.value);
+    },
   };
-  ask.prompts = prompts;
-  return ask;
+  return prompter;
+}
+
+/** A Prompter whose every method calls `onCall()` and returns a harmless value — for asserting a command never prompts at all before it fails. */
+function trackingPrompter(onCall) {
+  return {
+    async input() { onCall(); return ''; },
+    async select(opts) { onCall(); return opts.choices[0]?.value; },
+    async confirm() { onCall(); return false; },
+    async checkbox() { onCall(); return []; },
+  };
 }
 
 /** The one comprehensive fixture covering every safe/unsafe shape from this step's own spec, section 28 — one file, so every case is scanned in a single pass. */
@@ -135,7 +192,16 @@ async function detectFixture(name, { moduleResolution = 'bundler', useShadcn = f
     mkdirSync(path.dirname(full), { recursive: true });
     writeFileSync(full, contents, 'utf8');
   }
-  await swallowLogs(() => runInitCommand(dir, async () => ({ useShadcn, styling: 'default' })));
+  // "Use project shadcn" is only offered when components.json is already
+  // present (some fixtures pre-seed it via extraFiles), which shifts
+  // "Use Trim vanilla UI" from choice 1 to choice 2 — none of this file's
+  // fixtures actually pick the shadcn adapter itself (see the dedicated
+  // re-init with `scriptedAsk(['1', '3'])` below for that), so this always
+  // picks vanilla + popover (shell) + default (styling).
+  const shadcnWillBeConfigured = Object.prototype.hasOwnProperty.call(extraFiles, 'components.json');
+  void useShadcn; // kept as a parameter for callers' documentation intent; detectFixture itself never picks the shadcn adapter — see above
+  const initAnswers = shadcnWillBeConfigured ? ['2', '1', '1'] : ['1', '1', '1'];
+  await swallowLogs(() => runInitCommand(dir, scriptedAsk(initAnswers)));
   return dir;
 }
 
@@ -152,8 +218,8 @@ try {
     writeFileSync(path.join(dir, 'tsconfig.json'), '{}', 'utf8');
     writeFileSync(path.join(dir, 'src/candidates.ts'), CANDIDATES_SOURCE, 'utf8');
     let scanned = false;
-    await assert.rejects(runDetectCommand(dir, async () => { scanned = true; return ''; }), UsageError);
-    await assert.rejects(runDetectCommand(dir, async () => ''), /this project is not initialized\.\nRun:\n {2}trim init/);
+    await assert.rejects(runDetectCommand(dir, trackingPrompter(() => { scanned = true; })), UsageError);
+    await assert.rejects(runDetectCommand(dir, trackingPrompter(() => {})), /this project is not initialized\.\nRun:\n {2}trim init/);
     assert.equal(scanned, false, 'never scans or prompts before confirming initialization');
   }
 
@@ -221,7 +287,7 @@ export function readLocalStorageTheme(): string | null {
   return localStorage.getItem("theme");
 }
 `, 'utf8');
-    await swallowLogs(() => runInitCommand(dir, async () => ({ useShadcn: false, styling: 'default' })));
+    await swallowLogs(() => runInitCommand(dir, scriptedAsk(['1', '1', '1'])));
     const { candidates } = scan(dir);
     assert.equal(candidates.length, 0, 'React useState / localStorage patterns produce NO candidates at all (never READY, never a fabricated OBSERVED heuristic) — see this block\'s own comment');
   }
@@ -236,8 +302,8 @@ export function readLocalStorageTheme(): string | null {
       '', '', // theme: accept defaults
     ]);
     await swallowLogs(() => runDetectCommand(dir, ask));
-    assert.ok(ask.prompts.some((p) => p.includes('Control id: [manual]')), 'the proposed id is shown as a default, not silently applied');
-    assert.ok(ask.prompts.some((p) => p.includes('Label: [Manual]')));
+    assert.ok(ask.calls.some((c) => c.kind === 'input' && c.message === 'Control id:' && c.default === 'manual'), 'the proposed id is shown as a default, not silently applied');
+    assert.ok(ask.calls.some((c) => c.kind === 'input' && c.message === 'Label:' && c.default === 'Manual'));
     assert.ok(existsSync(path.join(dir, 'trim/controls/manual.trim.ts')));
     assert.match(readFileSync(path.join(dir, 'trim/controls/manual.trim.ts'), 'utf8'), /label: "Manual"/);
   }
@@ -246,15 +312,13 @@ export function readLocalStorageTheme(): string | null {
   {
     const dir = await detectFixture('user-customized-id-label');
     await swallowLogs(() =>
-      // "Select individually" asks include/exclude for EVERY ready candidate
-      // first (manual, contrast, theme, in scan/declaration order), THEN
-      // asks id/label confirmation only for the selected subset — the two
-      // phases are not interleaved per candidate.
+      // "Select individually" shows ONE checkbox screen for every ready
+      // candidate (manual, contrast, theme, in scan/declaration order),
+      // THEN asks id/label confirmation only for the checked subset — the
+      // two phases are not interleaved per candidate.
       runDetectCommand(dir, scriptedAsk([
         '2', // select individually
-        'n', // exclude manualBinding
-        'y', // include contrastBinding
-        'n', // exclude themeBinding
+        [2], // check only contrastBinding (position 2)
         'high-contrast', 'High Contrast Mode', // contrastBinding's confirmation: custom id + label
       ])),
     );
@@ -269,13 +333,11 @@ export function readLocalStorageTheme(): string | null {
   {
     const dir = await detectFixture('duplicate-id-in-batch');
     const output = await swallowLogs(() =>
-      // Selection phase (include/exclude for all 3, in order) fully
-      // precedes the confirmation phase (id/label for the selected ones).
+      // The checkbox selection screen (all 3, in order) fully precedes the
+      // confirmation phase (id/label for the checked ones).
       runDetectCommand(dir, scriptedAsk([
         '2', // select individually
-        'y', // include manualBinding
-        'y', // include contrastBinding
-        'n', // exclude themeBinding
+        [1, 2], // check manualBinding and contrastBinding
         'shared', '', // manualBinding's confirmation: id "shared", default label
         'shared', 'unique-name', '', // contrastBinding's confirmation: tries "shared" (rejected, already chosen in this batch), then "unique-name", default label
       ])),
@@ -321,8 +383,8 @@ export default defineBooleanControl({ id: "manual", label: "Manual", binding: { 
   }
   {
     const dir = await detectFixture('select-individually');
-    // Selection phase (all 3, in order) fully precedes confirmation (id/label for the one selected).
-    await swallowLogs(() => runDetectCommand(dir, scriptedAsk(['2', 'y', 'n', 'n', '', ''])));
+    // The checkbox selection screen (all 3, in order) fully precedes confirmation (id/label for the one checked).
+    await swallowLogs(() => runDetectCommand(dir, scriptedAsk(['2', [1], '', ''])));
     assert.ok(existsSync(path.join(dir, 'trim/controls/manual.trim.ts')));
     assert.ok(!existsSync(path.join(dir, 'trim/controls/contrast.trim.ts')));
     assert.ok(!existsSync(path.join(dir, 'trim/controls/theme.trim.ts')));
@@ -333,7 +395,9 @@ export default defineBooleanControl({ id: "manual", label: "Manual", binding: { 
     const output = await swallowLogs(() => runDetectCommand(dir, scriptedAsk(['3'])));
     assert.match(output, /Cancelled — nothing was created\./);
     assert.equal(readFileSync(path.join(dir, 'trim/trim.manifest.ts'), 'utf8'), manifestBefore);
-    assert.ok(!existsSync(path.join(dir, 'trim/controls')));
+    // `trim init` itself already seeded trim/controls/starter.trim.ts — a
+    // cancelled detect run must add nothing beyond that.
+    assert.deepEqual(readdirSync(path.join(dir, 'trim/controls')), ['starter.trim.ts']);
   }
 
   // --- batch transactionality: one bad id in the batch blocks EVERY candidate, not just that one ---
@@ -360,7 +424,7 @@ export default defineBooleanControl({ id: "manual", label: "Manual", binding: { 
     await swallowLogs(() => runDetectCommand(dir, scriptedAsk(['1', '', '', '', '', '', ''])));
     const manifest = readFileSync(path.join(dir, 'trim/trim.manifest.ts'), 'utf8');
     const order = [...manifest.matchAll(/import (\w+) from/g)].map((m) => m[1]);
-    assert.deepEqual(order, ['contrast', 'manual', 'theme', 'zzzExisting'], 'lexical id order, existing control included alongside the newly detected ones');
+    assert.deepEqual(order, ['contrast', 'manual', 'starter', 'theme', 'zzzExisting'], 'lexical id order, existing controls (the `trim init`-seeded "starter" plus the hand-added "zzz-existing") included alongside the newly detected ones');
   }
 
   // --- trim.settings.ts and trim.config.tsx stay byte-identical — detect never touches either ---
@@ -394,9 +458,20 @@ export default defineBooleanControl({ id: "manual", label: "Manual", binding: { 
   // --- shadcn preference has zero effect on detection or generation ---
   {
     const dirFalse = await detectFixture('shadcn-false', { useShadcn: false });
-    const dirTrue = await detectFixture('shadcn-true', { useShadcn: false, extraFiles: { 'components.json': '{"aliases":{"ui":"@/components/ui"}}' } });
-    // re-init dirTrue with useShadcn true now that components.json exists
-    await swallowLogs(() => runInitCommand(dirTrue, async () => ({ useShadcn: true, styling: 'default' })));
+    // Built directly with the shadcn adapter chosen from the start (rather
+    // than detectFixture's vanilla init followed by a re-init) — a REruns
+    // that changes ui.adapter now genuinely conflicts with the existing
+    // trim.config.tsx (it encodes ui.adapter/ui.shell), so this fixture
+    // picks shadcn (choice "1") + shell: "inline" (choice "3", the one
+    // shell that needs no real Button/Popover primitive on disk) in the
+    // ONE init run.
+    const dirTrue = path.join(testRoot, 'shadcn-true');
+    mkdirSync(path.join(dirTrue, 'src'), { recursive: true });
+    writeFileSync(path.join(dirTrue, 'tsconfig.json'), JSON.stringify({ compilerOptions: { moduleResolution: 'bundler', strict: true } }), 'utf8');
+    writeFileSync(path.join(dirTrue, 'src/candidates.ts'), CANDIDATES_SOURCE, 'utf8');
+    writeFileSync(path.join(dirTrue, 'components.json'), '{"aliases":{"ui":"@/components/ui"}}', 'utf8');
+    await swallowLogs(() => runInitCommand(dirTrue, scriptedAsk(['1', '3'])));
+    assert.match(readFileSync(path.join(dirTrue, 'trim/trim.json'), 'utf8'), /"shadcn": true/, 'sanity: this fixture really does end up with shadcn: true');
     const outFalse = await swallowLogs(() => runDetectCommand(dirFalse, scriptedAsk(['3'])));
     const outTrue = await swallowLogs(() => runDetectCommand(dirTrue, scriptedAsk(['3'])));
     const normalize = (s) => s.replace(/\d+ms/g, 'Nms');
@@ -413,7 +488,8 @@ export default defineBooleanControl({ id: "manual", label: "Manual", binding: { 
     const { serializeTrimMetadata } = require(path.join(root, 'dist/cli/project/trim-metadata.js'));
     writeFileSync(path.join(dir, 'trim/trim.json'), serializeTrimMetadata({ version: 1, shadcn: false, styling: 'default' }), 'utf8');
     try {
-      const out = await swallowLogs(() => runDetectCommand(dir, async () => { throw new Error('no candidates here — detect must never prompt'); }));
+      const neverPrompt = { async input() { throw new Error('no candidates here — detect must never prompt'); }, select() { return this.input(); }, confirm() { return this.input(); }, checkbox() { return this.input(); } };
+      const out = await swallowLogs(() => runDetectCommand(dir, neverPrompt));
       assert.match(out, /0 controls can be generated safely\./);
     } finally {
       rmSync(dir, { recursive: true, force: true });
@@ -424,8 +500,8 @@ export default defineBooleanControl({ id: "manual", label: "Manual", binding: { 
   {
     const dir = await detectFixture('malformed-tsconfig');
     writeFileSync(path.join(dir, 'tsconfig.json'), '{ not json at all', 'utf8');
-    await assert.rejects(runDetectCommand(dir, async () => ''), UsageError);
-    await assert.rejects(runDetectCommand(dir, async () => ''), /could not parse/);
+    await assert.rejects(runDetectCommand(dir, trackingPrompter(() => {})), UsageError);
+    await assert.rejects(runDetectCommand(dir, trackingPrompter(() => {})), /could not parse/);
   }
 
   // --- failure: selected binding disappeared between scan and generation ---
@@ -479,10 +555,35 @@ export default defineBooleanControl({ id: "manual", label: "Manual", binding: { 
     mkdirSync(path.join(consumerDir, 'src'), { recursive: true });
     writeFileSync(path.join(consumerDir, 'tsconfig.json'), JSON.stringify({ compilerOptions: { moduleResolution: 'bundler', strict: true } }), 'utf8');
     writeFileSync(path.join(consumerDir, 'src/candidates.ts'), CANDIDATES_SOURCE, 'utf8');
-    execFileSync('node', [installedBin, 'init'], { cwd: consumerDir, input: 'n\n1\n' });
-    const detectOutput = execFileSync('node', [installedBin, 'detect'], { cwd: consumerDir, input: '1\n\n\n\n\n\n\n', encoding: 'utf8' });
+
+    // Functional correctness against the ACTUAL packed-and-extracted dist
+    // (not just this repo's own dist/): require it directly, with a
+    // scripted fake Prompter, the same way every other test in this suite
+    // exercises runInitCommand/runDetectCommand — proves the packed output
+    // itself (not just repo-relative execution) behaves correctly.
+    const extractedRequire = createRequire(path.join(extractDir, 'package/package.json'));
+    const { runInitCommand: extractedRunInit } = extractedRequire(path.join(extractDir, 'package/dist/cli/commands/init.js'));
+    const { runDetectCommand: extractedRunDetect } = extractedRequire(path.join(extractDir, 'package/dist/cli/commands/detect.js'));
+    await swallowLogs(() => extractedRunInit(consumerDir, scriptedAsk(['1', '1', '1']))); // no components.json -> vanilla, popover (shell), default (styling)
+    const detectOutput = await swallowLogs(() => extractedRunDetect(consumerDir, scriptedAsk(['1', '', '', '', '', '', ''])));
     assert.match(detectOutput, /Ready to integrate/);
     assert.ok(existsSync(path.join(consumerDir, 'trim/controls/contrast.trim.ts')), 'trim detect worked from the actual packed-and-extracted tarball, not just repo-relative execution');
+
+    // The REAL binary, as a real subprocess, with genuinely non-interactive
+    // (piped, non-TTY) stdin: unlike the old readline-based prompts,
+    // @inquirer/prompts requires a real terminal and cannot read a scripted
+    // answer from a plain pipe — so the very first prompt now rejects with
+    // ExitPromptError, which dispatch.ts turns into a clean "Trim
+    // cancelled." and exit code 0, never a crash. This is what actually
+    // proves the production Prompter's dynamic `import("@inquirer/prompts")`
+    // resolves correctly from the packed dist at runtime: if it didn't,
+    // this would exit non-zero with a stack trace instead.
+    const noninteractiveConsumerDir = path.join(packDir, 'consumer-noninteractive');
+    mkdirSync(path.join(noninteractiveConsumerDir, 'src'), { recursive: true });
+    writeFileSync(path.join(noninteractiveConsumerDir, 'tsconfig.json'), JSON.stringify({ compilerOptions: { moduleResolution: 'bundler', strict: true } }), 'utf8');
+    const initResult = execFileSync('node', [installedBin, 'init'], { cwd: noninteractiveConsumerDir, input: '', encoding: 'utf8' });
+    assert.match(initResult, /Trim cancelled\./, 'the real, packed binary handles non-interactive stdin gracefully (no TTY -> @inquirer/prompts exits, dispatch.ts prints a clean cancellation) instead of crashing');
+    assert.ok(!existsSync(path.join(noninteractiveConsumerDir, 'trim')), 'nothing was written — the cancelled prompt happened before any file was planned');
   }
 
   console.log('PASS CLI detect: not initialized fails clearly before any scan/prompt, symbolNameToControlId proposal, scan classification (boolean/segmented ready with literal values retained in order; unrelated get/set-only object never a candidate at all; non-exported/loose-string/numeric/nullable/any/unknown all OBSERVED-or-excluded, never READY), no general "observed" heuristics beyond the mechanical module-local-binding case (React useState/localStorage produce zero candidates, by design), proposed id/label shown as editable defaults, user-customized id/label, duplicate id within a batch reprompts, existing control skipped both by id and by underlying binding source (no fragile text comparison), select All/individually/Cancel (cancel writes nothing), batch transactionality (one invalid entry blocks the whole batch), manifest regeneration (lexical order, existing + detected together), trim.settings.ts/trim.config.tsx byte-identical, generated files typecheck with node16 .js-suffixed imports and no internal/granular Trim imports, shadcn preference has zero effect, host with no `typescript` installed at all still scans fine (Trim never touches host TypeScript, only its own bundled compiler), clear failures (malformed tsconfig, binding disappeared/removed between scan and generation, id conflicts with an existing control), tarball ships detect\'s CLI files, and detect works from an actual packed-and-extracted tarball');

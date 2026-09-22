@@ -36,7 +36,7 @@ function initializedFixture(name, { moduleResolution = 'bundler' } = {}) {
   const dir = path.join(testRoot, name);
   mkdirSync(path.join(dir, 'trim'), { recursive: true });
   writeFileSync(path.join(dir, 'tsconfig.json'), JSON.stringify({ compilerOptions: { moduleResolution } }), 'utf8');
-  writeFileSync(path.join(dir, 'trim/trim.config.tsx'), generateConfigContents(), 'utf8');
+  writeFileSync(path.join(dir, 'trim/trim.config.tsx'), generateConfigContents({ adapter: 'vanilla', shell: 'popover' }), 'utf8');
   writeFileSync(path.join(dir, 'trim/trim.manifest.ts'), 'export const trimControls = [] as const;\n', 'utf8');
   writeFileSync(path.join(dir, 'trim/trim.settings.ts'), '// @trim-managed-schema {"version":1,"settings":[]}\nexport {};\n', 'utf8');
   writeFileSync(path.join(dir, 'trim/trim.json'), serializeTrimMetadata({ version: 1, shadcn: false, styling: 'default' }), 'utf8');
@@ -49,12 +49,69 @@ function writeFile(dir, relPath, contents) {
   writeFileSync(full, contents, 'utf8');
 }
 
-/** Pops one answer per call — throws (never hangs/loops) if the script under-specifies a flow, the same failure mode the real Ask has on exhausted stdin. */
+/**
+ * A scripted fake `Prompter` (cli/prompts/prompter.ts) — same queue-of-
+ * answers idea the old scriptedAsk used, methods resolve immediately, no
+ * TTY/stdin involved. Throws (never hangs/loops) if the script
+ * under-specifies a flow, the same failure mode the real, stdin-backed
+ * Prompter has on exhausted input.
+ *
+ * `select()` answers are 1-indexed, matching the on-screen choice order
+ * (e.g. "1" = the first choice) — the same numbers a real user would type
+ * before this migration, now looked up against `opts.choices` instead of
+ * parsed as free text. `confirm()` still accepts 'y'/'n'/'yes'/'no'/'' (or a
+ * real boolean) so most of this file's pre-migration answer queues carry
+ * over unchanged. `input()`'s scripted answer runs through `opts.validate`
+ * when present, reprompting (popping the next queued answer) on failure —
+ * exactly what the real, @inquirer/prompts-backed `input()` does — so a
+ * script can still exercise a validate-driven reprompt loop (e.g. detect's
+ * duplicate-id-in-batch case) by queuing an invalid answer followed by a
+ * valid one.
+ */
 function scriptedAsk(answers) {
   const queue = [...answers];
-  return async (promptText) => {
-    if (queue.length === 0) throw new Error(`scriptedAsk: ran out of answers (last prompt: ${JSON.stringify(promptText)})`);
+  function pop(message) {
+    if (queue.length === 0) throw new Error(`scriptedAsk: ran out of answers (last prompt: ${JSON.stringify(message)})`);
     return queue.shift();
+  }
+  return {
+    async input(opts) {
+      while (true) {
+        const raw = pop(opts.message);
+        const answer = raw === '' ? (opts.default ?? '') : String(raw);
+        if (opts.validate) {
+          const result = await opts.validate(answer);
+          if (result !== true) { console.log(result); continue; } // reprompt: consume the next queued answer, echoing the message the real UI would show
+        }
+        return answer;
+      }
+    },
+    async select(opts) {
+      const raw = pop(opts.message);
+      const choice = opts.choices[Number(raw) - 1];
+      if (!choice) throw new Error(`scriptedAsk: select got out-of-range answer ${JSON.stringify(raw)} for "${opts.message}" (${opts.choices.length} choices)`);
+      return choice.value;
+    },
+    async confirm(opts) {
+      const raw = pop(opts.message);
+      if (typeof raw === 'boolean') return raw;
+      if (raw === '') return opts.default ?? false;
+      return raw === 'y' || raw === 'yes';
+    },
+    async checkbox(opts) {
+      const indices = new Set(pop(opts.message)); // an array of 1-indexed positions to check
+      return opts.choices.filter((_, i) => indices.has(i + 1)).map((c) => c.value);
+    },
+  };
+}
+
+/** A Prompter whose every method calls `onCall()` and returns a harmless value — for asserting a command never prompts at all before it fails. */
+function trackingPrompter(onCall) {
+  return {
+    async input() { onCall(); return ''; },
+    async select(opts) { onCall(); return opts.choices[0]?.value; },
+    async confirm() { onCall(); return false; },
+    async checkbox() { onCall(); return []; },
   };
 }
 
@@ -120,31 +177,15 @@ try {
     assert.equal(readFileSync(path.join(dir, 'trim/trim.settings.ts'), 'utf8'), corrupted, 'the corrupted file is left exactly as found, for a human to resolve — never silently rewritten either');
   }
 
-  // --- REGRESSION: invalid non-empty answers reprompt instead of silently ---
-  // --- picking a default/fallback choice, at every numbered-menu prompt ---
-  // --- this wizard has no genuine default for ---
-  {
-    const dir = initializedFixture('reprompt-on-invalid');
-    const output = await swallowLogs(() =>
-      runNewControlCommand(
-        dir,
-        'theme',
-        scriptedAsk([
-          '9', 'nonsense', '1', // Control type: invalid, invalid, then Boolean
-          '', // Label: accepts its own default (not a numbered menu)
-          'huh', 'n', // Can repeat?: invalid, then explicit No
-          '3', '0', '2', // State: invalid (out of range), invalid, then Project binding
-          '4', '', '3', // Project binding: invalid, blank (also invalid — no default here), then Cancel
-        ]),
-      ),
-    );
-    assert.match(output, /Please enter a number from 1 to 4\./, 'control-type menu reprompts on out-of-range input');
-    assert.match(output, /Please answer y or n/, 'yes/no reprompts on unrecognized input');
-    assert.match(output, /Please enter a number from 1 to 2\./, 'state menu (no default) reprompts on out-of-range input');
-    assert.match(output, /Please enter a number from 1 to 3\./, 'project-binding menu (no default) reprompts on out-of-range AND on blank input');
-    assert.match(output, /Cancelled — nothing was created\./);
-    assert.ok(!existsSync(path.join(dir, 'trim/controls/theme.trim.ts')), 'an explicit Cancel still writes nothing, exactly as before this hardening');
-  }
+  // NOTE: the pre-migration "REGRESSION: invalid non-empty answers reprompt"
+  // test that used to live here (control-type/can-repeat/state/project-
+  // binding menus) no longer applies: those menus are now real select()/
+  // confirm() widgets (arrow-key navigation, a real yes/no toggle) with no
+  // "type an out-of-range number" input to reject in the first place — that
+  // rejection is now @inquirer/prompts's own, untested-by-us, UI concern.
+  // The one hand-rolled reprompt loop this wizard still owns (segmented
+  // options, "at least 2 required") keeps its own test below, now also
+  // asserting the hint message this migration added to its reprompt path.
 
   // --- control id validation ---
   {
@@ -164,7 +205,7 @@ try {
     const dir = initializedFixture('invalid-id');
     let asked = false;
     await assert.rejects(
-      runNewControlCommand(dir, 'Reduced Motion', async () => { asked = true; return ''; }),
+      runNewControlCommand(dir, 'Reduced Motion', trackingPrompter(() => { asked = true; })),
       UsageError,
     );
     assert.equal(asked, false, 'an invalid id is rejected before any prompt');
@@ -175,7 +216,7 @@ try {
     const dir = path.join(testRoot, 'not-initialized');
     mkdirSync(dir, { recursive: true });
     writeFileSync(path.join(dir, 'tsconfig.json'), '{}', 'utf8');
-    await assert.rejects(runNewControlCommand(dir, 'theme', async () => ''), UsageError);
+    await assert.rejects(runNewControlCommand(dir, 'theme', trackingPrompter(() => {})), UsageError);
     assert.ok(!existsSync(path.join(dir, 'trim')), 'no trim/ directory is created — trim new control never silently initializes');
   }
 
@@ -218,9 +259,10 @@ try {
     const dir = initializedFixture('segmented-min-options');
     // Only ONE option offered before trying to finish twice, then two real options.
     const ask = scriptedAsk(['2', '', 'n', 'solo', '', '', 'second', '', '', '1', '1']);
-    await swallowLogs(() => runNewControlCommand(dir, 'pair', ask));
+    const output = await swallowLogs(() => runNewControlCommand(dir, 'pair', ask));
     const settings = parseExistingManagedSettings(readFileSync(path.join(dir, 'trim/trim.settings.ts'), 'utf8'));
     assert.deepEqual(settings[0].options, ['solo', 'second'], 'a premature blank (fewer than 2 options) is rejected, not accepted');
+    assert.match(output, /At least 2 options are required/, 'the reprompt now shows a hint, unlike the pre-migration silent loop');
   }
 
   // --- Action: no Trim-managed question at all, straight to project binding, callback has no getter ---
@@ -299,7 +341,7 @@ try {
     const before = readFileSync(path.join(dir, 'trim/controls/theme.trim.ts'), 'utf8');
     let asked = false;
     await assert.rejects(
-      runNewControlCommand(dir, 'theme', async () => { asked = true; return ''; }),
+      runNewControlCommand(dir, 'theme', trackingPrompter(() => { asked = true; })),
       UsageError,
     );
     assert.equal(asked, false, 'a duplicate id fails before the wizard starts — no point asking questions for a rejected id');
@@ -363,7 +405,7 @@ try {
     const before = readFileSync(path.join(dir, 'trim/trim.config.tsx'), 'utf8');
     await swallowLogs(() => runNewControlCommand(dir, 'theme', scriptedAsk(['1', '', 'n', '1', 'y'])));
     assert.equal(readFileSync(path.join(dir, 'trim/trim.config.tsx'), 'utf8'), before, 'byte-identical — trim new control never modifies trim.config.tsx');
-    assert.equal(before, generateConfigContents(), 'sanity: still the pristine "groups: []" template');
+    assert.equal(before, generateConfigContents({ adapter: 'vanilla', shell: 'popover' }), 'sanity: still the pristine template — only the seeded "starter" group, "theme" was never attached');
   }
 
   // --- node16/nodenext: generated imports carry the compiled .js extension ---
@@ -408,7 +450,10 @@ try {
     mkdirSync(dir, { recursive: true });
     writeFileSync(path.join(dir, 'tsconfig.json'), JSON.stringify({ compilerOptions: { moduleResolution: 'bundler' } }), 'utf8');
 
-    await swallowLogs(() => runInitCommand(dir, async () => ({ useShadcn: false, styling: 'default' })));
+    // No components.json -> "Use project shadcn" isn't offered, so the
+    // adapter select's choices are [vanilla, headless]; "1"/"1"/"1" =
+    // vanilla, popover (shell), default (styling).
+    await swallowLogs(() => runInitCommand(dir, scriptedAsk(['1', '1', '1'])));
     await swallowLogs(() => runNewControlCommand(dir, 'theme', scriptedAsk(['2', '', 'n', 'light', '', 'dark', '', 'system', '', '', '1', '3'])));
     await swallowLogs(() => runNewControlCommand(dir, 'animations', scriptedAsk(['1', '', 'y', '1', 'y'])));
 
@@ -417,11 +462,16 @@ try {
     const manifest = readFileSync(path.join(dir, 'trim/trim.manifest.ts'), 'utf8');
     assert.match(manifest, /import animations from/);
     assert.match(manifest, /import theme from/);
+    assert.match(manifest, /import starter from/, '`trim init`\'s seeded "starter" control is still declared — new control only appends');
     const settings = parseExistingManagedSettings(readFileSync(path.join(dir, 'trim/trim.settings.ts'), 'utf8'));
-    assert.equal(settings.length, 2, 'one shared controller schema with both settings');
-    assert.equal(readFileSync(path.join(dir, 'trim/trim.config.tsx'), 'utf8'), generateConfigContents(), 'trim.config.tsx still has groups: [] — new control never attaches');
+    assert.equal(settings.length, 3, 'one shared controller schema with the seeded starter setting plus both new ones');
+    assert.equal(
+      readFileSync(path.join(dir, 'trim/trim.config.tsx'), 'utf8'),
+      generateConfigContents({ adapter: 'vanilla', shell: 'popover' }),
+      'trim.config.tsx still only has the seeded "starter" group — new control never attaches',
+    );
 
-    const files = ['trim/controls/theme.trim.ts', 'trim/controls/animations.trim.ts', 'trim/trim.manifest.ts', 'trim/trim.settings.ts', 'trim/trim.config.tsx'].map((p) => path.relative(root, path.join(dir, p)));
+    const files = ['trim/controls/starter.trim.ts', 'trim/controls/theme.trim.ts', 'trim/controls/animations.trim.ts', 'trim/trim.manifest.ts', 'trim/trim.settings.ts', 'trim/trim.config.tsx'].map((p) => path.relative(root, path.join(dir, p)));
     execFileSync('node', ['node_modules/typescript/bin/tsc', ...files, '--noEmit', '--strict', '--module', 'esnext', '--moduleResolution', 'bundler', '--target', 'es2020', '--jsx', 'react-jsx', '--skipLibCheck'], { cwd: root });
   }
 
@@ -435,7 +485,7 @@ try {
     assert.ok(!files.some((f) => f.startsWith('.trim-cli-new-control-test-')), 'no test fixture directory leaks into the tarball');
   }
 
-  console.log('PASS CLI new control: id validation (kebab-case required, never auto-rewritten), invalid id / not-initialized fail before prompting, reprompt (not silent fallback) on invalid input at the control-type/can-repeat/state/project-binding menus, Boolean/Segmented/Action/ToggleAction generation, is_unique omitted by default and generated as false (never true) when allowed, Existing TrimBinding + callback bindings with correctly RELATIVE import paths, a bad import path is a hard clear failure, cancelled flow writes nothing, duplicate id fails before prompting and leaves the existing file untouched, plan-validation failure writes nothing, manifest lexical ordering independent of add order, settings aggregation into one shared controller with the first control preserved exactly across a second addition, trim.config.tsx never touched, node16/nodenext .js-suffixed imports, no internal src/** or granular-subpath imports in generated files, generated files typecheck against the real built package, a real init -> new control -> new control sequence works end to end, tarball ships the new CLI files without test fixtures');
+  console.log('PASS CLI new control: id validation (kebab-case required, never auto-rewritten), invalid id / not-initialized fail before prompting, segmented options loop reprompts with a hint on fewer than 2 options, Boolean/Segmented/Action/ToggleAction generation, is_unique omitted by default and generated as false (never true) when allowed, Existing TrimBinding + callback bindings with correctly RELATIVE import paths, a bad import path is a hard clear failure, cancelled flow writes nothing, duplicate id fails before prompting and leaves the existing file untouched, plan-validation failure writes nothing, manifest lexical ordering independent of add order, settings aggregation into one shared controller with the first control preserved exactly across a second addition, trim.config.tsx never touched, node16/nodenext .js-suffixed imports, no internal src/** or granular-subpath imports in generated files, generated files typecheck against the real built package, a real init -> new control -> new control sequence works end to end, tarball ships the new CLI files without test fixtures');
 } finally {
   rmSync(testRoot, { recursive: true, force: true });
 }

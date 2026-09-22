@@ -77,7 +77,8 @@ export function listShadcnRefs(): readonly string[] {
 
 const IMPORT_PLACEHOLDER = "__TRIM_SHADCN_UI_IMPORT__";
 
-async function fileExistsWithAnyExtension(cwd: string, relativePathNoExt: string): Promise<boolean> {
+/** Exported for ./shadcn-shell.ts, which needs the exact same "does this shadcn primitive exist on disk yet" check for the shell wrapper's own required components (Button, Popover/Dialog) — never a second, subtly-different implementation. */
+export async function fileExistsWithAnyExtension(cwd: string, relativePathNoExt: string): Promise<boolean> {
   return [".tsx", ".ts", ".jsx", ".js"].some((ext) => existsSync(path.join(cwd, `${relativePathNoExt}${ext}`)));
 }
 

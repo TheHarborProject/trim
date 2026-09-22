@@ -16,7 +16,7 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { createRequire } from 'node:module';
-import { readFileSync, readdirSync, statSync } from 'node:fs';
+import { readFileSync, readdirSync, statSync, mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import path from 'node:path';
 
 const root = path.join(import.meta.dirname, '..');
@@ -179,6 +179,29 @@ const require = createRequire(import.meta.url);
   assert.equal(run(['attach']).code, 1, 'attach missing id via the real subprocess too');
 }
 
+// --- Ctrl+C during a prompt (dispatch.ts's ExitPromptError handling): the ---
+// --- real binary, a real prompt, genuinely non-interactive (piped, ---
+// --- non-TTY) stdin — @inquirer/prompts requires a real terminal, so the ---
+// --- very first prompt rejects with ExitPromptError as soon as stdin ---
+// --- closes, exactly as a real Ctrl+C would reject it. This proves ---
+// --- dispatch.ts's catch turns that into a clean "Trim cancelled." and ---
+// --- exit code 0 (the same convention an explicit in-menu Cancel choice ---
+// --- already uses) instead of a crash with a stack trace. ---
+{
+  const binPath = path.join(root, 'dist/cli/bin/trim.js');
+  const cancelTestRoot = mkdtempSync(path.join(root, '.trim-cli-cancel-test-'));
+  try {
+    const dir = path.join(cancelTestRoot, 'project');
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(path.join(dir, 'tsconfig.json'), '{}', 'utf8');
+    const result = execFileSync('node', [binPath, 'init'], { cwd: dir, input: '', encoding: 'utf8' });
+    assert.match(result, /Trim cancelled\./, 'ExitPromptError from a non-interactive stdin is caught and printed cleanly');
+    assert.doesNotMatch(result, /at Object|at async|\.js:\d+:\d+/, 'no stack trace leaks through for this expected cancellation');
+  } finally {
+    rmSync(cancelTestRoot, { recursive: true, force: true });
+  }
+}
+
 // --- no runtime coupling: nothing under src/ references cli/, and none of ---
 // --- the built runtime files mention it either ---
 {
@@ -212,4 +235,4 @@ const require = createRequire(import.meta.url);
   assert.ok(!files.some(f => f.startsWith('cli/')), 'raw cli/ source must never appear in the publishable tarball');
 }
 
-console.log('PASS CLI skeleton: shebang + executable bit on the built bin, dispatch (help/no-args/-h/unknown command/each command\'s parsing incl. the nested "new control" name and its own missing-arg usage error), the same behavior reproduced through the real subprocess, no runtime file references cli/ (source or built), tarball ships dist/cli/** but never raw cli/ source');
+console.log('PASS CLI skeleton: shebang + executable bit on the built bin, dispatch (help/no-args/-h/unknown command/each command\'s parsing incl. the nested "new control" name and its own missing-arg usage error), the same behavior reproduced through the real subprocess, Ctrl+C/ExitPromptError from a real prompt under non-interactive stdin is caught and printed as a clean "Trim cancelled." with exit code 0 (never a crash), no runtime file references cli/ (source or built), tarball ships dist/cli/** but never raw cli/ source');

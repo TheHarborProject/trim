@@ -8,8 +8,9 @@
 // `runNewControlCommand` is the whole command, decoupled from process.cwd()
 // and real stdin — `newControlCommand` (the actual dispatch.ts
 // CommandHandler) supplies the real ones. Tests call `runNewControlCommand`
-// directly with a fixture cwd and a scripted `Ask` (see
-// cli/prompts/new-control-prompts.ts), no TTY needed.
+// directly with a fixture cwd and a scripted `Prompter` (see
+// cli/prompts/prompter.ts and cli/prompts/new-control-prompts.ts), no TTY
+// needed.
 //
 // Sequence: read project (trim.json must exist — never silently
 // initialized) -> collect answers (the wizard) -> build a plan (pure,
@@ -21,11 +22,13 @@
 import { detectProject } from "../project/detect-project";
 import { readTrimMetadata } from "../project/trim-metadata";
 import { isValidControlId, suggestControlId } from "../project/control-id";
-import { collectNewControlAnswers, createReadlineAsk, type Ask } from "../prompts/new-control-prompts";
+import { collectNewControlAnswers } from "../prompts/new-control-prompts";
+import { inquirerPrompter } from "../prompts/inquirer-prompter";
+import type { Prompter } from "../prompts/prompter";
 import { buildNewControlPlan, applyNewControlPlan, controlAlreadyExists, controlFilePath } from "../generators/new-control-plan";
 import { UsageError, type CommandHandler } from "../dispatch";
 
-export async function runNewControlCommand(cwd: string, id: string, ask: Ask): Promise<void> {
+export async function runNewControlCommand(cwd: string, id: string, prompter: Prompter): Promise<void> {
   if (!isValidControlId(id)) {
     const suggestion = suggestControlId(id);
     throw new UsageError(
@@ -48,7 +51,7 @@ export async function runNewControlCommand(cwd: string, id: string, ask: Ask): P
 
   const project = detectProject(cwd);
 
-  const specOrCancelled = await collectNewControlAnswers(cwd, id, ask);
+  const specOrCancelled = await collectNewControlAnswers(cwd, id, prompter);
   if (specOrCancelled === "cancelled") {
     console.log("Cancelled — nothing was created.");
     return;
@@ -69,10 +72,5 @@ export async function runNewControlCommand(cwd: string, id: string, ask: Ask): P
 export const newControlCommand: CommandHandler = async (args) => {
   const [id] = args;
   if (!id) throw new UsageError("Usage: trim new control <id>");
-  const { ask, close } = createReadlineAsk();
-  try {
-    await runNewControlCommand(process.cwd(), id, ask);
-  } finally {
-    close();
-  }
+  await runNewControlCommand(process.cwd(), id, inquirerPrompter);
 };

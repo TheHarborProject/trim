@@ -34,6 +34,7 @@ async function runExampleInstall(cwd: string): Promise<void> {
 
   console.log("");
   for (const file of plan.literalFiles) console.log(`${STATUS_MARKER[file.status]} ${file.path}`);
+  if (plan.replace) console.log(`~ ${plan.replace.starterControlPath} (canonical trim init starter — will be replaced)`);
 
   const conflicts = plan.literalFiles.filter((f) => f.status === "conflict");
   if (conflicts.length > 0) {
@@ -45,10 +46,11 @@ async function runExampleInstall(cwd: string): Promise<void> {
   const project = detectProject(cwd);
   const result = await applyExamplePlan(cwd, plan, project.moduleResolution);
 
-  for (const controlPlan of result.controlPlans) console.log(`✓ Created ${controlPlan.controlFile.path}`);
+  for (const controlPath of result.controlFilePaths) console.log(`✓ Created ${controlPath}`);
   console.log(`✓ Updated trim/trim.manifest.ts`);
   console.log(`✓ Updated trim/trim.settings.ts`);
   console.log(`✓ Updated trim/trim.config.tsx (${result.attachedLabels.join(", ")})`);
+  if (result.removedStarterPath) console.log(`✓ Removed ${result.removedStarterPath} (replaced by @default/example)`);
   console.log("");
   console.log("Example installed. Wire it into your app:");
   console.log('  import { ExamplePanel } from "./example-panel";');

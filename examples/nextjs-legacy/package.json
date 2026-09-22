@@ -1,0 +1,24 @@
+{
+  "name": "trim-nextjs-fixture",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Real Next.js App Router fixture verifying Trim 0.2's ui.adapter/ui.shell end to end (vanilla+popover, shadcn+popover, headless). Not part of the published npm package (see root package.json's \"files\") and not compiled by the root build script.",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint"
+  },
+  "dependencies": {
+    "@theharborproject/trim": "file:../..",
+    "next": "^15.5.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "typescript": "^5"
+  }
+}

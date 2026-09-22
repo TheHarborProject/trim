@@ -19,9 +19,10 @@
 // `runDetectCommand` is the whole command, decoupled from process.cwd() and
 // real stdin — `detectCommand` (the actual dispatch.ts CommandHandler)
 // supplies the real ones. Tests call `runDetectCommand` directly with a
-// fixture cwd and a scripted Ask (see cli/prompts/detect-prompts.ts) — scan
-// and classification themselves need no Ask at all, so a test can also call
-// them without ever reaching the interactive stage.
+// fixture cwd and a scripted `Prompter` (see cli/prompts/prompter.ts and
+// cli/prompts/detect-prompts.ts) — scan and classification themselves need
+// no Prompter at all, so a test can also call them without ever reaching
+// the interactive stage.
 
 import { readTrimMetadata } from "../project/trim-metadata";
 import { buildHostProgram } from "../project/ts-program";
@@ -31,7 +32,8 @@ import { collectExistingBindingSources, bindingSourceKey } from "../project/exis
 import { detectProject } from "../project/detect-project";
 import { collectDetectSelection, collectDetectConfirmations } from "../prompts/detect-prompts";
 import { buildDetectBatchPlan, applyDetectBatchPlan } from "../generators/detect-plan";
-import { createReadlineAsk, type Ask } from "../prompts/new-control-prompts";
+import { inquirerPrompter } from "../prompts/inquirer-prompter";
+import type { Prompter } from "../prompts/prompter";
 import { UsageError, type CommandHandler } from "../dispatch";
 import path from "node:path";
 
@@ -52,7 +54,7 @@ function describeObserved(candidate: Extract<DetectedCandidate, { status: "not-e
   return [`? ${candidate.symbolName} (${candidate.filePath})`, `  ${headline}`, `  ${detail}`];
 }
 
-export async function runDetectCommand(cwd: string, ask: Ask): Promise<void> {
+export async function runDetectCommand(cwd: string, prompter: Prompter): Promise<void> {
   const metadata = await readTrimMetadata(cwd);
   if (!metadata) {
     throw new UsageError("this project is not initialized.\nRun:\n  trim init");
@@ -116,7 +118,7 @@ export async function runDetectCommand(cwd: string, ask: Ask): Promise<void> {
 
   if (ready.length === 0) return;
 
-  const selection = await collectDetectSelection(ask, ready);
+  const selection = await collectDetectSelection(prompter, ready);
   if (selection === "cancelled") {
     console.log("Cancelled — nothing was created.");
     return;
@@ -126,7 +128,7 @@ export async function runDetectCommand(cwd: string, ask: Ask): Promise<void> {
     return;
   }
 
-  const inputs = await collectDetectConfirmations(cwd, ask, selection);
+  const inputs = await collectDetectConfirmations(cwd, prompter, selection);
   const plan = await buildDetectBatchPlan(cwd, inputs);
   const project = detectProject(cwd);
   const results = await applyDetectBatchPlan(cwd, plan, project.moduleResolution);
@@ -143,10 +145,5 @@ export async function runDetectCommand(cwd: string, ask: Ask): Promise<void> {
 }
 
 export const detectCommand: CommandHandler = async () => {
-  const { ask, close } = createReadlineAsk();
-  try {
-    await runDetectCommand(process.cwd(), ask);
-  } finally {
-    close();
-  }
+  await runDetectCommand(process.cwd(), inquirerPrompter);
 };

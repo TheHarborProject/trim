@@ -36,6 +36,10 @@ const expected = {
   '@theharborproject/trim/react/controls/toggle-action': 'dist/react/controls/toggle-action.js',
   '@theharborproject/trim/react/controls/unsupported-fallback': 'dist/react/controls/unsupported-fallback.js',
   '@theharborproject/trim/react/layouts/sections': 'dist/react/layouts/sections.js',
+  '@theharborproject/trim/react/shell/resolve': 'dist/react/shell/resolve.js',
+  '@theharborproject/trim/react/shell/vanilla-inline': 'dist/react/shell/vanilla-inline.js',
+  '@theharborproject/trim/react/shell/vanilla-popover': 'dist/react/shell/vanilla-popover.js',
+  '@theharborproject/trim/react/shell/vanilla-dialog': 'dist/react/shell/vanilla-dialog.js',
   '@theharborproject/trim/themes/default.css': 'dist/themes/default.css',
   '@theharborproject/trim/panel.css': 'dist/themes/default.css',
 };
@@ -111,6 +115,54 @@ assert.throws(() => resolveSubpath('@theharborproject/trim/nonexistent'), /ERR_P
   );
 }
 
+// --- react/shell/*: each granular subpath exposes exactly one symbol, the ---
+// --- internal shared dismiss hook has no subpath of its own, and none of ---
+// --- these are re-exported from the main react barrel — same non-barrel ---
+// --- convention DefaultSectionsLayout already uses above ---
+{
+  delete require.cache[resolveSubpath('@theharborproject/trim/react/shell/resolve')];
+  delete require.cache[resolveSubpath('@theharborproject/trim/react/shell/vanilla-inline')];
+  delete require.cache[resolveSubpath('@theharborproject/trim/react/shell/vanilla-popover')];
+  delete require.cache[resolveSubpath('@theharborproject/trim/react/shell/vanilla-dialog')];
+  const resolve = require(resolveSubpath('@theharborproject/trim/react/shell/resolve'));
+  const vanillaInline = require(resolveSubpath('@theharborproject/trim/react/shell/vanilla-inline'));
+  const vanillaPopover = require(resolveSubpath('@theharborproject/trim/react/shell/vanilla-popover'));
+  const vanillaDialog = require(resolveSubpath('@theharborproject/trim/react/shell/vanilla-dialog'));
+  assert.deepEqual(Object.keys(resolve), ['resolveShell']);
+  assert.deepEqual(Object.keys(vanillaInline), ['VanillaInlineShell']);
+  assert.deepEqual(Object.keys(vanillaPopover), ['VanillaPopoverShell']);
+  assert.deepEqual(Object.keys(vanillaDialog), ['VanillaDialogShell']);
+
+  assert.equal(resolve.resolveShell(undefined, undefined), vanillaInline.VanillaInlineShell, 'adapter/shell both omitted resolves to the passthrough shell');
+  assert.equal(resolve.resolveShell('vanilla', 'inline'), vanillaInline.VanillaInlineShell);
+  assert.equal(resolve.resolveShell('vanilla', 'popover'), vanillaPopover.VanillaPopoverShell);
+  assert.equal(resolve.resolveShell('vanilla', 'dialog'), vanillaDialog.VanillaDialogShell);
+  assert.equal(resolve.resolveShell('shadcn', 'popover'), vanillaInline.VanillaInlineShell, '"shadcn" resolves to the passthrough regardless of `shell` — shadcn chrome is CLI-generated, never rendered by this runtime');
+  assert.equal(resolve.resolveShell('headless', 'dialog'), vanillaInline.VanillaInlineShell, 'same for "headless"');
+
+  // VanillaInlineShell calls no hook, so — same technique as panel.test.mjs's
+  // <Trim.Panel> and layouts-sections.test.mjs's DefaultSectionsLayout — it
+  // is safe to call directly and inspect the returned element structurally:
+  // exactly `children`, wrapped in nothing but a Fragment (no real DOM node).
+  const React = require('react');
+  const child = { type: 'span', props: { children: 'inner' } };
+  const inlineOutput = vanillaInline.VanillaInlineShell({ children: child, open: false, onOpenChange: () => {} });
+  assert.equal(inlineOutput.type, React.Fragment, 'no wrapper element at all — a Fragment adds no real DOM node');
+  assert.equal(inlineOutput.props.children, child, '`children` pass through completely unchanged');
+
+  assert.throws(
+    () => require.resolve('@theharborproject/trim/react/shell/use-shell-dismiss', { paths: [root] }),
+    /ERR_PACKAGE_PATH_NOT_EXPORTED/,
+    'use-shell-dismiss has no export-map subpath of its own',
+  );
+
+  delete require.cache[resolveSubpath('@theharborproject/trim/react')];
+  const reactBarrel = require(resolveSubpath('@theharborproject/trim/react'));
+  for (const name of ['resolveShell', 'VanillaInlineShell', 'VanillaPopoverShell', 'VanillaDialogShell']) {
+    assert.equal(name in reactBarrel, false, `${name} must not be exported from the main react barrel — reachable only via its own react/shell/* subpath, same convention as DefaultSectionsLayout`);
+  }
+}
+
 // --- /advanced compatibility remains functional end to end against the REAL built files ---
 {
   delete require.cache[resolveSubpath('@theharborproject/trim/advanced')];
@@ -122,10 +174,19 @@ assert.throws(() => resolveSubpath('@theharborproject/trim/nonexistent'), /ERR_P
   assert.equal(advanced.ToggleWidget(props).type, DefaultBooleanControl, 'advanced/widgets.tsx forwards to the real, currently-built DefaultBooleanControl — not a stale or duplicated copy');
 }
 
-// --- sideEffects names exactly the one real CSS output, nothing stale ---
-assert.deepEqual(pkg.sideEffects, ['./dist/themes/default.css']);
-assert.ok(existsSync(path.join(root, 'dist/themes/default.css')), 'the declared side-effect file actually exists in dist');
+assert.deepEqual(pkg.sideEffects, ['./dist/themes/*.css']);
 
+for (const file of [
+  'base.css',
+  'controls.css',
+  'shell.css',
+  'default.css',
+]) {
+  assert.ok(
+    existsSync(path.join(root, 'dist/themes', file)),
+    `published theme file exists: ${file}`,
+  );
+}
 // --- tarball contains only publishable artifacts: dist/**, package.json, README, LICENSE ---
 {
   const json = execFileSync('npm', ['pack', '--dry-run', '--ignore-scripts', '--json'], { cwd: root, encoding: 'utf8' });
@@ -142,9 +203,19 @@ assert.ok(existsSync(path.join(root, 'dist/themes/default.css')), 'the declared 
     assert.ok(!files.some(f => f.startsWith(forbiddenPrefix)), `the tarball must not contain anything under "${forbiddenPrefix}"`);
   }
   assert.ok(files.includes('dist/themes/default.css'));
+  assert.ok(files.includes('dist/themes/base.css'));
+assert.ok(files.includes('dist/themes/controls.css'));
+assert.ok(files.includes('dist/themes/shell.css'));
   assert.ok(files.includes('dist/react/controls/boolean.js'));
   assert.ok(files.includes('dist/react/controls/unsupported-fallback.js'));
   assert.ok(files.includes('dist/react/layouts/sections.js'));
+  assert.ok(files.includes('dist/react/shell/resolve.js'));
+  assert.ok(files.includes('dist/react/shell/vanilla-popover.js'));
+  assert.ok(files.includes('dist/react/shell/vanilla-dialog.js'));
+
+
+
+
 }
 
 console.log('PASS package exports: every documented subpath resolves against the real dist/ build (panel.css and themes/default.css alias to the identical file), unlisted subpaths correctly rejected, core never touches React even transitively, granular renderer files require nothing beyond react\'s jsx runtime, DefaultSectionsLayout pulls in hooks + controls but never the legacy panel/components files, /advanced forwards to the real currently-built controls, sideEffects names exactly one real file, and the publishable tarball contains only dist/**, package.json, README, LICENSE');

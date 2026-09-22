@@ -22,6 +22,8 @@ const { listKnownRefs, findTemplateEntry, TEMPLATE_REGISTRY } = require(path.joi
 const { runAddCommand } = require(path.join(root, 'dist/cli/commands/add.js'));
 const { runInitCommand } = require(path.join(root, 'dist/cli/commands/init.js'));
 const { runNewControlCommand } = require(path.join(root, 'dist/cli/commands/new-control.js'));
+const { generateManifestFileContents } = require(path.join(root, 'dist/cli/generators/manifest-file.js'));
+const { generateSettingsFileContents } = require(path.join(root, 'dist/cli/generators/settings-file.js'));
 const { UsageError } = require(path.join(root, 'dist/cli/dispatch.js'));
 
 const testRoot = mkdtempSync(path.join(root, '.trim-cli-add-test-'));
@@ -34,20 +36,93 @@ const swallowLogs = async (fn) => {
   return lines.join('\n');
 };
 
-async function initializedFixture(name, { styling = 'default', useShadcn = false } = {}) {
+/**
+ * A scripted fake `Prompter` (cli/prompts/prompter.ts) — same queue-of-
+ * answers idea the old scriptedAsk used, methods resolve immediately, no
+ * TTY/stdin involved. `select()` answers are 1-indexed, matching the
+ * on-screen choice order; `confirm()` still accepts 'y'/'n'/''.
+ */
+function scriptedAsk(answers) {
+  const queue = [...answers];
+  function pop(message) {
+    if (queue.length === 0) throw new Error(`scriptedAsk: ran out of answers (last prompt: ${JSON.stringify(message)})`);
+    return queue.shift();
+  }
+  return {
+    async input(opts) { return pop(opts.message); },
+    async select(opts) {
+      const raw = pop(opts.message);
+      const choice = opts.choices[Number(raw) - 1];
+      if (!choice) throw new Error(`scriptedAsk: select got out-of-range answer ${JSON.stringify(raw)} for "${opts.message}"`);
+      return choice.value;
+    },
+    async confirm(opts) {
+      const raw = pop(opts.message);
+      if (typeof raw === 'boolean') return raw;
+      if (raw === '') return opts.default ?? false;
+      return raw === 'y' || raw === 'yes';
+    },
+    async checkbox(opts) {
+      const indices = new Set(pop(opts.message));
+      return opts.choices.filter((_, i) => indices.has(i + 1)).map((c) => c.value);
+    },
+  };
+}
+
+/**
+ * A freshly `trim init`-ed project, with no components.json (so "Use
+ * project shadcn" isn't offered — the adapter select's only choices are
+ * [vanilla, headless]). `styling: 'headless'` now means picking the
+ * headless ADAPTER itself (choice "2"), rather than a third styling
+ * choice — the old third styling option is exactly that adapter now (see
+ * cli/prompts/init-prompts.ts's own header on the reconciled flow).
+ */
+async function initializedFixture(name, { styling = 'default' } = {}) {
   const dir = path.join(testRoot, name);
   mkdirSync(dir, { recursive: true });
   writeFileSync(path.join(dir, 'tsconfig.json'), JSON.stringify({ compilerOptions: { moduleResolution: 'bundler' } }), 'utf8');
-  await swallowLogs(() => runInitCommand(dir, async () => ({ useShadcn, styling })));
+  const answers = styling === 'headless' ? ['2'] : ['1', '1', styling === 'tokens' ? '2' : '1'];
+  await swallowLogs(() => runInitCommand(dir, scriptedAsk(answers)));
   return dir;
 }
 
-function scriptedAsk(answers) {
-  const queue = [...answers];
-  return async (promptText) => {
-    if (queue.length === 0) throw new Error(`scriptedAsk: ran out of answers (last prompt: ${JSON.stringify(promptText)})`);
-    return queue.shift();
-  };
+// `generateConfigContents({ adapter: 'vanilla', shell: 'popover' })`'s own
+// literal `groups` block (see cli/generators/init-files.ts) — matched
+// verbatim so emptyFixture below can strip it back to `groups: []`,
+// without hand-rolling a second "what does an empty config look like" text.
+const SEEDED_GROUPS_BLOCK = `groups: [
+    {
+      id: "starter",
+      label: "Example",
+      controls: ["starter"],
+    },
+  ],
+});
+`;
+
+/**
+ * `@default/example`'s own precondition (cli/generators/example-plan.ts's
+ * checkProjectIsEmpty) requires a GENUINELY empty Trim setup — no declared
+ * controls, no Trim-managed settings, no config groups. `trim init` itself
+ * now always seeds one starter "starter" control (see init-files.ts's own
+ * header) — a real, deliberate feature, but one that's simply orthogonal to
+ * `@default/example`'s own "installs into a blank canvas" precondition, so
+ * these tests reset that seed back to empty (using the SAME real
+ * generators the empty case already uses) before exercising
+ * `@default/example` in isolation, exactly as if `trim init` had produced
+ * a blank setup the way it used to.
+ */
+async function emptyFixture(name, opts) {
+  const dir = await initializedFixture(name, opts);
+  rmSync(path.join(dir, 'trim/controls/starter.trim.ts'));
+  writeFileSync(path.join(dir, 'trim/trim.manifest.ts'), generateManifestFileContents([], 'classic-or-bundler'), 'utf8');
+  writeFileSync(path.join(dir, 'trim/trim.settings.ts'), generateSettingsFileContents([]), 'utf8');
+  const configPath = path.join(dir, 'trim/trim.config.tsx');
+  const config = readFileSync(configPath, 'utf8');
+  const stripped = config.replace(SEEDED_GROUPS_BLOCK, 'groups: [],\n});\n');
+  assert.notEqual(stripped, config, 'emptyFixture: could not find the seeded starter group to strip out of trim.config.tsx');
+  writeFileSync(configPath, stripped, 'utf8');
+  return dir;
 }
 
 try {
@@ -118,7 +193,7 @@ try {
 
   // --- @default/example: fresh init -> installs successfully, correct file tree, config groups, typechecks ---
   {
-    const dir = await initializedFixture('example-fresh');
+    const dir = await emptyFixture('example-fresh');
     const output = await swallowLogs(() => runAddCommand(dir, '@default/example'));
     assert.match(output, /Example installed/);
 
@@ -146,7 +221,7 @@ try {
   // --- anti-drift: the generated files @default/example installs are BYTE-IDENTICAL to examples/default's ---
   // --- own checked-in files — proving there is no second, silently-diverging copy of the generator output ---
   {
-    const dir = await initializedFixture('example-drift-check');
+    const dir = await emptyFixture('example-drift-check');
     await swallowLogs(() => runAddCommand(dir, '@default/example'));
     for (const f of ['trim/controls/theme.trim.ts', 'trim/controls/contrast.trim.ts', 'trim/controls/animations.trim.ts', 'trim/trim.manifest.ts', 'trim/trim.settings.ts', 'host/contrast-store.ts', 'trim/renderers/custom-contrast.tsx']) {
       const installed = readFileSync(path.join(dir, f), 'utf8');
@@ -161,7 +236,7 @@ try {
 
   // --- @default/example: rejected when the project already has a declared control ---
   {
-    const dir = await initializedFixture('example-rejected-existing-control');
+    const dir = await emptyFixture('example-rejected-existing-control');
     await swallowLogs(() => runNewControlCommand(dir, 'reduced-motion', scriptedAsk(['1', '', 'n', '1', 'n'])));
     await assert.rejects(runAddCommand(dir, '@default/example'), UsageError);
     await assert.rejects(runAddCommand(dir, '@default/example'), /can only be installed into an empty Trim setup/);
@@ -170,7 +245,7 @@ try {
 
   // --- @default/example: rejected when trim.config.tsx already has a group ---
   {
-    const dir = await initializedFixture('example-rejected-existing-group');
+    const dir = await emptyFixture('example-rejected-existing-group');
     const configPath = path.join(dir, 'trim/trim.config.tsx');
     writeFileSync(configPath, readFileSync(configPath, 'utf8').replace('groups: []', 'groups: [{ id: "misc", label: "Misc", controls: [] }]'), 'utf8');
     await assert.rejects(runAddCommand(dir, '@default/example'), UsageError);
@@ -185,9 +260,139 @@ try {
     await assert.rejects(runAddCommand(dir, '@default/example'), /trim init/);
   }
 
+  // --- REAL sequence: genuine `trim init` immediately followed by genuine `trim add @default/example`, ---
+  // --- with NO fixture stripping (unlike emptyFixture above) — exercises and documents the ACTUAL current ---
+  // --- behavior of that exact back-to-back sequence. This now SUCCEEDS: the canonical, untouched `trim init` ---
+  // --- starter is case 1 of example-plan.ts's 3-case reconciliation — it is transactionally REPLACED by ---
+  // --- @default/example (starter's control file/manifest entry/settings entry/config group all removed, ---
+  // --- @default/example's own installed, in one operation), not rejected the way it used to be. ---
+  {
+    const dir = path.join(testRoot, 'real-sequence-init-then-example');
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(path.join(dir, 'tsconfig.json'), JSON.stringify({ compilerOptions: { moduleResolution: 'bundler' } }), 'utf8');
+    await swallowLogs(() => runInitCommand(dir, scriptedAsk(['1', '1', '1'])));
+    assert.ok(existsSync(path.join(dir, 'trim/controls/starter.trim.ts')), 'trim init seeded the "starter" control');
+
+    const output = await swallowLogs(() => runAddCommand(dir, '@default/example'));
+    assert.match(output, /Example installed/);
+    assert.match(output, /Removed trim\/controls\/starter\.trim\.ts/, 'output reports the starter removal alongside the create/matches/conflict reporting');
+
+    assert.ok(!existsSync(path.join(dir, 'trim/controls/starter.trim.ts')), 'starter.trim.ts no longer exists');
+    for (const f of ['trim/controls/theme.trim.ts', 'trim/controls/contrast.trim.ts', 'trim/controls/animations.trim.ts', 'host/contrast-store.ts', 'trim/renderers/custom-contrast.tsx', 'example-panel.tsx']) {
+      assert.ok(existsSync(path.join(dir, f)), `${f} was installed`);
+    }
+
+    const manifest = readFileSync(path.join(dir, 'trim/trim.manifest.ts'), 'utf8');
+    assert.doesNotMatch(manifest, /starter/, 'trim.manifest.ts has no starter reference');
+    assert.match(manifest, /theme/);
+    assert.match(manifest, /animations/);
+
+    const settings = readFileSync(path.join(dir, 'trim/trim.settings.ts'), 'utf8');
+    assert.doesNotMatch(settings, /starter/, 'trim.settings.ts has no starter key');
+    assert.match(settings, /theme/);
+    assert.match(settings, /animations/);
+
+    const config = readFileSync(path.join(dir, 'trim/trim.config.tsx'), 'utf8');
+    assert.doesNotMatch(config, /starter/, 'trim.config.tsx has no starter group');
+    assert.match(config, /id: "vision"/);
+    assert.match(config, /id: "motion"/);
+    assert.equal((config.match(/"theme"/g) ?? []).length, 1);
+    assert.equal((config.match(/"contrast"/g) ?? []).length, 1);
+    assert.equal((config.match(/"animations"/g) ?? []).length, 2, 'animations is attached twice — the is_unique: false demonstration');
+
+    const relFiles = ['trim/controls/theme.trim.ts', 'trim/controls/contrast.trim.ts', 'trim/controls/animations.trim.ts', 'trim/trim.manifest.ts', 'trim/trim.settings.ts', 'trim/trim.config.tsx', 'host/contrast-store.ts', 'trim/renderers/custom-contrast.tsx', 'example-panel.tsx'].map((p) => path.relative(root, path.join(dir, p)));
+    execFileSync('node', [
+      'node_modules/typescript/bin/tsc', ...relFiles,
+      '--noEmit', '--strict', '--module', 'esnext', '--moduleResolution', 'bundler', '--target', 'es2020', '--jsx', 'react-jsx', '--skipLibCheck',
+    ], { cwd: root });
+  }
+
+  // --- @default/example: case 3 — anything that deviates from the EXACT canonical trim init starter refuses ---
+  // --- safely (a clear UsageError), leaving every file byte-identical to before the attempt. The check is by ---
+  // --- CONTENT (byte-compare the control/manifest/settings files, AST-parse the config group), never by the ---
+  // --- id "starter" alone — a project whose "starter" doesn't match the generated shape is refused, not ---
+  // --- destroyed, exactly like every other non-canonical, non-empty state. ---
+  {
+    // sub-case: starter.trim.ts hand-edited (label changed) after a fresh init
+    const dir = await initializedFixture('example-case3-handedited-starter');
+    const controlPath = path.join(dir, 'trim/controls/starter.trim.ts');
+    const manifestPath = path.join(dir, 'trim/trim.manifest.ts');
+    const settingsPath = path.join(dir, 'trim/trim.settings.ts');
+    const configPath = path.join(dir, 'trim/trim.config.tsx');
+    const before = { manifest: readFileSync(manifestPath, 'utf8'), settings: readFileSync(settingsPath, 'utf8'), config: readFileSync(configPath, 'utf8') };
+    writeFileSync(controlPath, readFileSync(controlPath, 'utf8').replace('"Starter control"', '"My Starter"'), 'utf8');
+    const handEdited = readFileSync(controlPath, 'utf8');
+
+    await assert.rejects(runAddCommand(dir, '@default/example'), UsageError);
+    await assert.rejects(runAddCommand(dir, '@default/example'), /can only be installed into an empty Trim setup, or replace an untouched/);
+    assert.equal(readFileSync(controlPath, 'utf8'), handEdited, 'starter.trim.ts left exactly as the hand-edit left it — nothing written');
+    assert.equal(readFileSync(manifestPath, 'utf8'), before.manifest, 'trim.manifest.ts byte-identical — nothing written');
+    assert.equal(readFileSync(settingsPath, 'utf8'), before.settings, 'trim.settings.ts byte-identical — nothing written');
+    assert.equal(readFileSync(configPath, 'utf8'), before.config, 'trim.config.tsx byte-identical — nothing written');
+    assert.ok(!existsSync(path.join(dir, 'trim/controls/theme.trim.ts')), 'nothing from the example was installed');
+  }
+
+  {
+    // sub-case: an extra control exists alongside starter
+    const dir = await initializedFixture('example-case3-extra-control');
+    await swallowLogs(() => runNewControlCommand(dir, 'reduced-motion', scriptedAsk(['1', '', 'n', '1', 'n'])));
+    const controlPath = path.join(dir, 'trim/controls/starter.trim.ts');
+    const configPath = path.join(dir, 'trim/trim.config.tsx');
+    const controlBefore = readFileSync(controlPath, 'utf8');
+    const configBefore = readFileSync(configPath, 'utf8');
+
+    await assert.rejects(runAddCommand(dir, '@default/example'), UsageError);
+    await assert.rejects(runAddCommand(dir, '@default/example'), /already has 2 declared control\(s\)/);
+    assert.equal(readFileSync(controlPath, 'utf8'), controlBefore, 'starter.trim.ts byte-identical — nothing written');
+    assert.equal(readFileSync(configPath, 'utf8'), configBefore, 'trim.config.tsx byte-identical — nothing written');
+    assert.ok(existsSync(controlPath), 'starter was NOT removed');
+    assert.ok(!existsSync(path.join(dir, 'trim/controls/theme.trim.ts')), 'nothing from the example was installed');
+  }
+
+  {
+    // sub-case: an extra group exists in trim.config.tsx alongside the starter group
+    const dir = await initializedFixture('example-case3-extra-group');
+    const configPath = path.join(dir, 'trim/trim.config.tsx');
+    const before = readFileSync(configPath, 'utf8');
+    const withExtraGroup = before.replace('controls: ["starter"],\n    },\n  ],', 'controls: ["starter"],\n    },\n    { id: "misc", label: "Misc", controls: [] },\n  ],');
+    assert.notEqual(withExtraGroup, before, 'sanity: the extra group was actually inserted into the fixture');
+    writeFileSync(configPath, withExtraGroup, 'utf8');
+
+    await assert.rejects(runAddCommand(dir, '@default/example'), UsageError);
+    await assert.rejects(runAddCommand(dir, '@default/example'), /can only be installed into an empty Trim setup, or replace an untouched/);
+    assert.equal(readFileSync(configPath, 'utf8'), withExtraGroup, 'trim.config.tsx byte-identical — nothing written');
+    assert.ok(existsSync(path.join(dir, 'trim/controls/starter.trim.ts')), 'starter was NOT removed');
+    assert.ok(!existsSync(path.join(dir, 'trim/controls/theme.trim.ts')), 'nothing from the example was installed');
+  }
+
+  {
+    // sub-case: starter's group in config.tsx modified beyond the canonical shape — label changed
+    const dir = await initializedFixture('example-case3-modified-group-label');
+    const configPath = path.join(dir, 'trim/trim.config.tsx');
+    const modified = readFileSync(configPath, 'utf8').replace('label: "Example"', 'label: "Renamed"');
+    writeFileSync(configPath, modified, 'utf8');
+
+    await assert.rejects(runAddCommand(dir, '@default/example'), UsageError);
+    assert.equal(readFileSync(configPath, 'utf8'), modified, 'trim.config.tsx byte-identical — nothing written');
+    assert.ok(existsSync(path.join(dir, 'trim/controls/starter.trim.ts')), 'starter was NOT removed');
+  }
+
+  {
+    // sub-case: starter's group in config.tsx modified beyond the canonical shape — an extra control id added to its `controls` array
+    const dir = await initializedFixture('example-case3-modified-group-controls');
+    const configPath = path.join(dir, 'trim/trim.config.tsx');
+    const modified = readFileSync(configPath, 'utf8').replace('controls: ["starter"],', 'controls: ["starter", "extra"],');
+    writeFileSync(configPath, modified, 'utf8');
+
+    await assert.rejects(runAddCommand(dir, '@default/example'), UsageError);
+    assert.equal(readFileSync(configPath, 'utf8'), modified, 'trim.config.tsx byte-identical — nothing written');
+    assert.ok(existsSync(path.join(dir, 'trim/controls/starter.trim.ts')), 'starter was NOT removed');
+    assert.ok(!existsSync(path.join(dir, 'trim/controls/theme.trim.ts')), 'nothing from the example was installed');
+  }
+
   // --- @default/example: TRANSACTIONAL — a conflicting literal file blocks EVERYTHING, including the generated files ---
   {
-    const dir = await initializedFixture('example-transactional');
+    const dir = await emptyFixture('example-transactional');
     writeFileSync(path.join(dir, 'example-panel.tsx'), '// a file this project already had, unrelated to Trim\n', 'utf8');
     await assert.rejects(runAddCommand(dir, '@default/example'), UsageError);
     assert.ok(!existsSync(path.join(dir, 'trim/controls/theme.trim.ts')), 'no control was created');
@@ -199,7 +404,7 @@ try {
 
   // --- headless styling: the installed example panel does NOT import Trim's default theme CSS ---
   {
-    const dir = await initializedFixture('example-headless', { styling: 'headless' });
+    const dir = await emptyFixture('example-headless', { styling: 'headless' });
     await swallowLogs(() => runAddCommand(dir, '@default/example'));
     const panel = readFileSync(path.join(dir, 'example-panel.tsx'), 'utf8');
     assert.doesNotMatch(panel, /themes\/default\.css/, 'headless: no default-theme CSS is secretly injected');
@@ -208,7 +413,7 @@ try {
 
   // --- tokens styling: the installed example panel imports the project's own trim/trim.css, never overwriting it ---
   {
-    const dir = await initializedFixture('example-tokens', { styling: 'tokens' });
+    const dir = await emptyFixture('example-tokens', { styling: 'tokens' });
     const tokensCssBefore = readFileSync(path.join(dir, 'trim/trim.css'), 'utf8');
     await swallowLogs(() => runAddCommand(dir, '@default/example'));
     const panel = readFileSync(path.join(dir, 'example-panel.tsx'), 'utf8');
@@ -219,7 +424,7 @@ try {
 
   // --- shadcn preference never changes @default/... behavior ---
   {
-    const dir = await initializedFixture('shadcn-does-not-affect-default', { useShadcn: false });
+    const dir = await initializedFixture('shadcn-does-not-affect-default');
     mkdirSync(path.join(dir, 'components.json').replace(/components\.json$/, ''), { recursive: true }); // no-op, dir already exists
     const noShadcnOutput = await swallowLogs(() => runAddCommand(dir, '@default/controls/boolean'));
     assert.doesNotMatch(noShadcnOutput.toLowerCase(), /shadcn/, '@default/controls/boolean never mentions shadcn, regardless of trim.json');
@@ -277,7 +482,7 @@ try {
     assert.match(installedFile, /DefaultBooleanControl/, 'the template was correctly resolved from the packed-and-extracted package\'s OWN dist/cli/templates, not a repo-relative dev path');
   }
 
-  console.log('PASS CLI add: static ref registry (every supported ref resolves, unknown ref is a clean UsageError listing available refs, no filesystem access), each simple template (@default/controls/boolean|segmented|toggle-action, @default/layouts/sections) installs/is idempotent/conflicts safely, generated imports resolve through the real public export map with no internal src/** references and typecheck against the real built package, @default/example (fresh install with correct file tree/config groups/typecheck, anti-drift byte-equality against examples/default\'s own checked-in generator-produced files, rejected on an existing control or existing config group, rejected when not initialized, fully transactional on any literal-file conflict, headless never injects default CSS, tokens imports the project\'s own trim.css without touching it, shadcn preference never affects @default/... behavior), tarball ships dist/cli/templates/** but never raw cli/templates/** or examples/**, and template lookup works from an actual packed-and-extracted tarball');
+  console.log('PASS CLI add: static ref registry (every supported ref resolves, unknown ref is a clean UsageError listing available refs, no filesystem access), each simple template (@default/controls/boolean|segmented|toggle-action, @default/layouts/sections) installs/is idempotent/conflicts safely, generated imports resolve through the real public export map with no internal src/** references and typecheck against the real built package, @default/example (fresh empty install with correct file tree/config groups/typecheck, anti-drift byte-equality against examples/default\'s own checked-in generator-produced files, case 2 rejected on an existing control or existing config group with no controls, rejected when not initialized, fully transactional on any literal-file conflict, headless never injects default CSS, tokens imports the project\'s own trim.css without touching it, shadcn preference never affects @default/... behavior, case 1: a real trim init -> trim add @default/example now transactionally REPLACES the canonical starter with the example -- starter gone, example fully installed, typechecks -- and case 3: any deviation from the canonical starter shape (hand-edited control, extra control, extra config group, modified starter group label/controls) refuses with a UsageError and leaves every file byte-identical, never silently destroying it), tarball ships dist/cli/templates/** but never raw cli/templates/** or examples/**, and template lookup works from an actual packed-and-extracted tarball');
 } finally {
   rmSync(testRoot, { recursive: true, force: true });
 }

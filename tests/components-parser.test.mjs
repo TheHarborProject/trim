@@ -221,7 +221,8 @@ try {
     const registry = { register() {}, unregister() {}, get() {}, list() { return []; }, subscribe() { return () => {}; } };
     const controls = [{ id: 'theme', kind: 'toggle', label: 'Theme', binding: noopBind }];
     const element = Registry({ registry, controls, children: 'x' });
-    assert.equal(element.props.value, registry, 'an explicit registry still wins over the default');
+    assert.notEqual(element.props.value, registry, 'manifest controls use a render-time view over the explicit registry');
+    assert.equal(element.props.value.list()[0].id, 'theme', 'the manifest control is visible before effects run');
     const [manifestElement, passedChildren] = element.props.children;
     assert.ok(React.isValidElement(manifestElement), 'a `controls` prop renders the manifest-registration slot');
     assert.equal(manifestElement.props.registry, registry);
