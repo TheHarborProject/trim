@@ -44,7 +44,7 @@ export async function runInitCommand(cwd: string, prompter: Prompter): Promise<v
   if (!project.isTypeScript) {
     throw new UsageError(
       "trim init currently supports TypeScript projects only (no tsconfig.json was found in this directory). " +
-        "Add TypeScript to this project first, or see @theharborproject/trim's examples/default for a hand-written pattern you can adapt.",
+        "Add TypeScript to this project first, or run `trim example default` in an empty working directory for a pattern you can adapt.",
     );
   }
 

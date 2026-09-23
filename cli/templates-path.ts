@@ -9,8 +9,7 @@
 // whether that package root is this repo (during tests, which run against
 // the real `dist/` build) or a real `node_modules/@theharborproject/trim`
 // install. Templates live at `dist/cli/templates/**`, built by copying
-// `cli/templates/**` (and, for `@default/example`, a few files owned by
-// `examples/default/` — see package.json's build script) verbatim: these
+// `cli/templates/**` verbatim (see package.json's build script): these
 // are never run through `tsc` themselves, since the whole point is to copy
 // their exact source TEXT into a host project, not a compiled artifact.
 import { readFileSync } from "node:fs";

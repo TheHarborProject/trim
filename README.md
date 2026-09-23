@@ -229,8 +229,10 @@ projects, it can be mapped directly:
 }
 ```
 
-Runnable versions of all three patterns are in
-[`examples/styling`](./examples/styling).
+Runnable examples live in the external Trim registry. Use `trim example shadcn`,
+`trim example vanilla`, or `trim example headless` to copy one into a new
+directory, then follow its README. See [registry examples](./docs/registry-examples.md)
+for registry configuration and installation details.
 
 Defaults are scoped to `[data-trim-panel]`, never `:root`. Without host
 color overrides, the skin follows `prefers-color-scheme`. Set tokens on the

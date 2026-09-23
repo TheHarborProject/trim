@@ -1,7 +1,7 @@
 // Trim CLI — trim/controls/<id>.trim.ts generation, using only public core
 // APIs (define*Control factories, callback()). This file never imports
 // src/** — the same public entry points a hand-written control file would
-// use, matching examples/default's own canonical pattern.
+// use, also exercised by the default API fixture.
 
 import { relativeImportSpecifier, relativePathBetween } from "../project/module-resolution";
 import type { ModuleResolutionMode } from "../project/detect-project";

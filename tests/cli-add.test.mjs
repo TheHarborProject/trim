@@ -218,20 +218,23 @@ try {
     ], { cwd: root });
   }
 
-  // --- anti-drift: the generated files @default/example installs are BYTE-IDENTICAL to examples/default's ---
-  // --- own checked-in files — proving there is no second, silently-diverging copy of the generator output ---
+  // Generated controls/manifest/settings retain the API fixture's expected output.
+  // Literal template assets must match their single canonical source in cli/templates.
   {
     const dir = await emptyFixture('example-drift-check');
     await swallowLogs(() => runAddCommand(dir, '@default/example'));
-    for (const f of ['trim/controls/theme.trim.ts', 'trim/controls/contrast.trim.ts', 'trim/controls/animations.trim.ts', 'trim/trim.manifest.ts', 'trim/trim.settings.ts', 'host/contrast-store.ts', 'trim/renderers/custom-contrast.tsx']) {
+    for (const f of ['trim/controls/theme.trim.ts', 'trim/controls/contrast.trim.ts', 'trim/controls/animations.trim.ts', 'trim/trim.manifest.ts', 'trim/trim.settings.ts']) {
       const installed = readFileSync(path.join(dir, f), 'utf8');
-      const canonical = readFileSync(path.join(root, 'examples/default', f), 'utf8');
-      assert.equal(installed, canonical, `${f}: the live installer's output must match examples/default's checked-in file exactly`);
+      const expected = readFileSync(path.join(root, 'tests/fixtures/default', f), 'utf8');
+      assert.equal(installed, expected, `${f}: generated output must match the API fixture`);
     }
-    // trim.config.tsx and example-panel.tsx are EXPECTED to differ (see
-    // cli/generators/example-plan.ts's own header: attach never generates
-    // a component override, so "contrast" installs as a bare id here,
-    // unlike examples/default's own hand-wired custom-renderer override).
+    for (const f of ['host/contrast-store.ts', 'trim/renderers/custom-contrast.tsx', 'example-panel.tsx']) {
+      const canonical = readFileSync(path.join(root, 'cli/templates/default/example', f), 'utf8');
+      assert.equal(readFileSync(path.join(dir, f), 'utf8'), canonical, `${f}: installed template must match its canonical source`);
+      assert.equal(readFileSync(path.join(root, 'dist/cli/templates/default/example', f), 'utf8'), canonical, `${f}: built template must match its canonical source`);
+    }
+    // The API fixture hand-wires a custom renderer; the installer leaves that
+    // optional config edit to the host and attaches contrast as a bare id.
   }
 
   // --- @default/example: rejected when the project already has a declared control ---
@@ -480,9 +483,19 @@ try {
     execFileSync('node', [installedBin, 'add', '@default/controls/boolean'], { cwd: consumerDir });
     const installedFile = readFileSync(path.join(consumerDir, 'trim/renderers/boolean.tsx'), 'utf8');
     assert.match(installedFile, /DefaultBooleanControl/, 'the template was correctly resolved from the packed-and-extracted package\'s OWN dist/cli/templates, not a repo-relative dev path');
+
+    const exampleConsumer = await emptyFixture('packed-example');
+    execFileSync('node', [installedBin, 'add', '@default/example'], { cwd: exampleConsumer });
+    for (const file of ['host/contrast-store.ts', 'trim/renderers/custom-contrast.tsx', 'example-panel.tsx']) {
+      assert.equal(
+        readFileSync(path.join(exampleConsumer, file), 'utf8'),
+        readFileSync(path.join(root, 'cli/templates/default/example', file), 'utf8'),
+        `${file}: packed CLI installs the canonical example template`,
+      );
+    }
   }
 
-  console.log('PASS CLI add: static ref registry (every supported ref resolves, unknown ref is a clean UsageError listing available refs, no filesystem access), each simple template (@default/controls/boolean|segmented|toggle-action, @default/layouts/sections) installs/is idempotent/conflicts safely, generated imports resolve through the real public export map with no internal src/** references and typecheck against the real built package, @default/example (fresh empty install with correct file tree/config groups/typecheck, anti-drift byte-equality against examples/default\'s own checked-in generator-produced files, case 2 rejected on an existing control or existing config group with no controls, rejected when not initialized, fully transactional on any literal-file conflict, headless never injects default CSS, tokens imports the project\'s own trim.css without touching it, shadcn preference never affects @default/... behavior, case 1: a real trim init -> trim add @default/example now transactionally REPLACES the canonical starter with the example -- starter gone, example fully installed, typechecks -- and case 3: any deviation from the canonical starter shape (hand-edited control, extra control, extra config group, modified starter group label/controls) refuses with a UsageError and leaves every file byte-identical, never silently destroying it), tarball ships dist/cli/templates/** but never raw cli/templates/** or examples/**, and template lookup works from an actual packed-and-extracted tarball');
+  console.log('PASS CLI add: static ref registry (every supported ref resolves, unknown ref is a clean UsageError listing available refs, no filesystem access), each simple template (@default/controls/boolean|segmented|toggle-action, @default/layouts/sections) installs/is idempotent/conflicts safely, generated imports resolve through the real public export map with no internal src/** references and typecheck against the real built package, @default/example (fresh empty install with correct file tree/config groups/typecheck, anti-drift byte-equality against canonical cli/templates assets and generated API fixtures, case 2 rejected on an existing control or existing config group with no controls, rejected when not initialized, fully transactional on any literal-file conflict, headless never injects default CSS, tokens imports the project\'s own trim.css without touching it, shadcn preference never affects @default/... behavior, case 1: a real trim init -> trim add @default/example now transactionally REPLACES the canonical starter with the example -- starter gone, example fully installed, typechecks -- and case 3: any deviation from the canonical starter shape (hand-edited control, extra control, extra config group, modified starter group label/controls) refuses with a UsageError and leaves every file byte-identical, never silently destroying it), tarball ships dist/cli/templates/** but never raw cli/templates/** or examples/**, and template lookup works from an actual packed-and-extracted tarball');
 } finally {
   rmSync(testRoot, { recursive: true, force: true });
 }

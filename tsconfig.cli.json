@@ -20,7 +20,7 @@
   // "@theharborproject/trim/..." as an installed CONSUMER would, neither of
   // which this config's plain-commonjs, no-jsx settings support; a
   // dedicated test typechecks these files against the real built package
-  // instead (the same self-reference technique examples/default's test
+  // instead (the same self-reference technique tests/example.test.mjs
   // uses), so excluding them here loses no coverage.
   "exclude": ["cli/templates"]
 }

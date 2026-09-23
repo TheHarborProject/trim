@@ -63,7 +63,7 @@ try {
       cache.set(file, module.exports);
       return module.exports;
     };
-    const fixture = path.join(root, 'examples/headless/trim');
+    const fixture = path.join(root, 'tests/fixtures/headless/trim');
     const config = loadFixture(path.join(fixture, 'trim.config.tsx')).default;
     const { trimControls } = loadFixture(path.join(fixture, 'trim.manifest.ts'));
     assert.deepEqual(trimControls.map(({ id }) => id), ['starter']);

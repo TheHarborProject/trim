@@ -1,6 +1,6 @@
 {
   "name": "@theharborproject/trim",
-  "version": "0.1.3",
+  "version": "0.2.0",
   "description": "Adaptive UI: a registry + binding contract that connects declarative controls to state your app already owns.",
   "license": "MIT",
   "repository": {
@@ -86,7 +86,7 @@
     "dist"
   ],
   "bin": {
-    "trim": "./dist/cli/bin/trim.js"
+    "trim": "dist/cli/bin/trim.js"
   },
   "engines": {
     "node": ">=18.17"
@@ -110,7 +110,7 @@
     "typescript": "^5"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json && mkdir -p dist/themes && cp src/themes/*.css dist/themes/ && rm -rf dist/cli && tsc -p tsconfig.cli.json && chmod +x dist/cli/bin/trim.js && mkdir -p dist/cli/templates/default/example/host dist/cli/templates/default/example/trim/renderers && cp -r cli/templates/default/controls dist/cli/templates/default/controls && cp -r cli/templates/default/layouts dist/cli/templates/default/layouts && cp examples/default/host/contrast-store.ts dist/cli/templates/default/example/host/contrast-store.ts && cp examples/default/trim/renderers/custom-contrast.tsx dist/cli/templates/default/example/trim/renderers/custom-contrast.tsx && cp examples/default/example-panel.tsx dist/cli/templates/default/example/example-panel.tsx && cp -r cli/templates/shadcn dist/cli/templates/shadcn",
+    "build": "tsc -p tsconfig.json && mkdir -p dist/themes && cp src/themes/*.css dist/themes/ && rm -rf dist/cli && tsc -p tsconfig.cli.json && chmod +x dist/cli/bin/trim.js && cp -r cli/templates dist/cli/templates",
     "test": "for f in tests/*.mjs; do node \"$f\" || exit 1; done",
     "prepack": "pnpm run build",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.cli.json --noEmit"

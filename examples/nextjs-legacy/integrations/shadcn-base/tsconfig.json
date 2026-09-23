@@ -1,9 +1,0 @@
-{
-  "compilerOptions": {
-    "moduleResolution": "bundler",
-    "baseUrl": ".",
-    "paths": {
-      "@base-ui-fixture/*": ["./*"]
-    }
-  }
-}

@@ -241,10 +241,8 @@ cascade. */
  * (headless included: a headless integration still needs somewhere to
  * register `trimControls` and render <Trim.Panel>, it just renders no
  * chrome of its own). "use client" of its own, on top of the "use client"
- * already carried by @theharborproject/trim/react's exports — every
- * hand-written mount file in this repo's own examples/nextjs fixture does
- * the same, for the same reason: it lets a Next.js Server Component
- * RootLayout import and render this file directly with zero extra
+ * already carried by @theharborproject/trim/react's exports. This lets a
+ * Next.js Server Component RootLayout import and render this file with no extra
  * client-boundary work, and stays correct even if a future Trim version
  * ever dropped its own package-level pragma.
  *

@@ -10,8 +10,8 @@
 // path, given a fixed set of specs instead of interactive answers. Only
 // the few files NOT normally CLI-generated — the custom renderer, the
 // host state stand-in, the panel entry point — are genuine copy-paste
-// templates, and those are copied from examples/default/ at BUILD time
-// (see package.json's build script and templates-path.ts), so there is
+// templates owned by cli/templates/default/example/ and copied at BUILD
+// time (see package.json's build script and templates-path.ts), so there is
 // exactly one authored copy of each, not two.
 //
 // Three, and only three, project states are accepted (see buildExamplePlan
@@ -124,7 +124,7 @@ const DEFAULT_THEME_CSS_IMPORT = 'import "@theharborproject/trim/themes/default.
  * modifies trim/trim.css or any other stylesheet) — this only changes
  * which stylesheet the installed panel imports, mirroring `trim init`'s
  * own per-styling notes:
- * - "default": Trim's own theme (unchanged from examples/default's own file).
+ * - "default": Trim's own theme (unchanged from the canonical panel template).
  * - "tokens": trim init already generated trim/trim.css mapping project
  *   tokens onto Trim's CSS variables — import THAT instead, never the
  *   package's own default theme, so the example works through it.
@@ -141,7 +141,7 @@ function buildExamplePanelContents(styling: Styling): string {
   return base.replace(DEFAULT_THEME_CSS_IMPORT, "");
 }
 
-/** The exact demonstration examples/default hand-authors — see that directory's own README for what each concept proves. Fixed, non-interactive: this installer never prompts. */
+/** Fixed demonstration specs: managed state, callback state, and a reusable control. Non-interactive: this installer never prompts. */
 const CONTROL_SPECS: readonly NewControlSpec[] = [
   {
     id: "theme",
@@ -180,7 +180,7 @@ const CONTROL_SPECS: readonly NewControlSpec[] = [
  * attaches a SECOND time into "Motion" — the is_unique: false demonstration
  * (both attachments share the exact same binding). "contrast" is attached
  * as a bare id here, NOT the { id, component: CustomContrast } object form
- * examples/default's own trim.config.tsx uses: `trim attach` (whose real
+ * the default API fixture's trim.config.tsx uses: `trim attach` (whose real
  * generator this reuses) never generates a component override by design
  * (see cli/commands/attach.ts's own header) — the installed project's
  * printed output tells you how to swap it in by hand, the same "copy the

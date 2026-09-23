@@ -38,5 +38,7 @@ created; if cleanup also fails, the error identifies the partial directory.
 Remove or move a previous installation before retrying.
 
 `trim add @default/example` retains its existing generated, in-project behavior.
-The bundled templates and local `examples/` directory are unchanged. This addition
-only covers examples; it does not enable registry controls, styles, or presets.
+Its canonical assets live in `cli/templates/default/example/`. Standalone examples
+are maintained in the external Trim registry; internal API fixtures live in
+`tests/fixtures/`. Registry installation only covers examples, not controls,
+styles, or presets.
