@@ -60,6 +60,7 @@ export function createControllerEngine<Schema extends TrimOptionsSchema>(
   );
 
   function snapshotString() {
+    if (typeof document === "undefined") return serverSnapshotString;
     return document.documentElement.getAttribute(stateAttr) || serverSnapshotString;
   }
 
