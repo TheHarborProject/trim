@@ -21,6 +21,7 @@
 // `addCommand` (the actual dispatch.ts CommandHandler) supplies the real
 // one. Tests call `runAddCommand` directly with a fixture cwd.
 
+import { GENERATED_PLUGINS, buildGeneratedPluginPlan, applyGeneratedPluginPlan } from "../generators/generated-plugin-plan";
 import { detectProject } from "../project/detect-project";
 import { findTemplateEntry, listKnownRefs, buildTemplateFilePlan, applyTemplateFilePlan, type TemplateFilePlan } from "../generators/template-registry";
 import { buildExamplePlan, applyExamplePlan } from "../generators/example-plan";
@@ -92,6 +93,15 @@ async function runShadcnTemplateInstall(cwd: string, ref: string): Promise<void>
 }
 
 export async function runAddCommand(cwd: string, ref: string): Promise<void> {
+  const plugin = GENERATED_PLUGINS.find((entry) => entry.ref === ref);
+  if (plugin) {
+    const plan = await buildGeneratedPluginPlan(cwd, plugin);
+    await applyGeneratedPluginPlan(cwd, plan);
+    for (const file of plan.files) console.log(`✓ ${file.path}`);
+    console.log(`${plugin.control.label} installed in ${plugin.group.label}.`);
+    return;
+  }
+
   if (ref === "@default/example") {
     await runExampleInstall(cwd);
     return;
@@ -107,7 +117,7 @@ export async function runAddCommand(cwd: string, ref: string): Promise<void> {
     return;
   }
 
-  throw new UsageError(`unknown template "${ref}". Available: ${[...listKnownRefs(), ...listShadcnRefs()].join(", ")}.`);
+  throw new UsageError(`unknown template "${ref}". Available: ${[...listKnownRefs(), ...listShadcnRefs(), ...GENERATED_PLUGINS.map((entry) => entry.ref)].join(", ")}.`);
 }
 
 export const addCommand: CommandHandler = async (args) => {

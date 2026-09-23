@@ -40,6 +40,11 @@ export async function resolveControlIsUnique(tsc: TS, controlFilePath: string): 
   } catch {
     return true;
   }
+  return controlSourceIsUnique(tsc, source, controlFilePath);
+}
+
+/** Also used for generated declarations that have not been written yet. */
+export function controlSourceIsUnique(tsc: TS, source: string, controlFilePath: string): boolean {
   const sourceFile = tsc.createSourceFile(controlFilePath, source, tsc.ScriptTarget.Latest, true, tsc.ScriptKind.TS);
   const objectLiteral = findDefineControlObjectLiteral(tsc, sourceFile);
   if (!objectLiteral) return true;

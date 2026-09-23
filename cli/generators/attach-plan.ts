@@ -12,7 +12,7 @@ import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { loadTypeScript, type TS } from "../project/resolve-typescript";
 import { parseTrimConfig, computeAttachEdit, UnsupportedConfigShapeError, type ParsedConfig, type AttachTarget } from "../project/trim-config-ast";
-import { resolveControlIsUnique } from "../project/control-uniqueness";
+import { resolveControlIsUnique, controlSourceIsUnique } from "../project/control-uniqueness";
 import { controlAlreadyExists, controlFilePath } from "./new-control-plan";
 import { UsageError } from "../dispatch";
 
@@ -40,8 +40,8 @@ export type AttachInfo = {
  * so nothing wastes the user's time on a wizard that would just be
  * rejected at the end. Never writes.
  */
-export async function gatherAttachInfo(cwd: string, id: string): Promise<AttachInfo> {
-  if (!controlAlreadyExists(cwd, id)) {
+export async function gatherAttachInfo(cwd: string, id: string, plannedControlSource?: string): Promise<AttachInfo> {
+  if (plannedControlSource === undefined && !controlAlreadyExists(cwd, id)) {
     throw new UsageError(`control "${id}" does not exist. Declare it first: \`trim new control ${id}\`.`);
   }
 
@@ -65,7 +65,10 @@ export async function gatherAttachInfo(cwd: string, id: string): Promise<AttachI
     throw error;
   }
 
-  const isUnique = await resolveControlIsUnique(tsc, path.join(cwd, controlFilePath(id)));
+  const declarationPath = path.join(cwd, controlFilePath(id));
+  const isUnique = plannedControlSource === undefined
+    ? await resolveControlIsUnique(tsc, declarationPath)
+    : controlSourceIsUnique(tsc, plannedControlSource, declarationPath);
   const alreadyAttachedIn = parsed.groups.filter((g) => g.items.some((item) => item.ref === id)).map((g) => g.id);
 
   if (isUnique && alreadyAttachedIn.length > 0) {

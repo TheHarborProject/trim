@@ -21,6 +21,7 @@
 // isn't one this CLI understands fails loudly (see below); it is never
 // guessed at or silently migrated.
 
+import { controlIdToIdentifier } from "./manifest-file";
 import { UsageError } from "../dispatch";
 
 export type TrimManagedSetting =
@@ -88,12 +89,16 @@ export function parseExistingManagedSettings(source: string): readonly TrimManag
   return settings; // rule 2: the valid case
 }
 
+function schemaKey(key: string): string {
+  return /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(key) ? key : JSON.stringify(key);
+}
+
 function schemaEntry(setting: TrimManagedSetting): string {
-  return setting.kind === "boolean" ? `    ${setting.key}: ["true", "false"],` : `    ${setting.key}: [${setting.options.map((o) => JSON.stringify(o)).join(", ")}],`;
+  return setting.kind === "boolean" ? `    ${schemaKey(setting.key)}: ["true", "false"],` : `    ${schemaKey(setting.key)}: [${setting.options.map((o) => JSON.stringify(o)).join(", ")}],`;
 }
 
 function defaultEntry(setting: TrimManagedSetting): string {
-  return setting.kind === "boolean" ? `    ${setting.key}: ${JSON.stringify(setting.defaultValue ? "true" : "false")},` : `    ${setting.key}: ${JSON.stringify(setting.defaultValue)},`;
+  return setting.kind === "boolean" ? `    ${schemaKey(setting.key)}: ${JSON.stringify(setting.defaultValue ? "true" : "false")},` : `    ${schemaKey(setting.key)}: ${JSON.stringify(setting.defaultValue)},`;
 }
 
 /**
@@ -107,10 +112,10 @@ function defaultEntry(setting: TrimManagedSetting): string {
  */
 function bindingEntry(setting: TrimManagedSetting): string {
   if (setting.kind === "segmented") {
-    return `  ${setting.key}: controller(trimSettingsController, "${setting.key}"),`;
+    return `  ${controlIdToIdentifier(setting.key)}: controller(trimSettingsController, "${setting.key}"),`;
   }
   return (
-    `  ${setting.key}: callback<boolean>(\n` +
+    `  ${controlIdToIdentifier(setting.key)}: callback<boolean>(\n` +
     `    () => controller(trimSettingsController, "${setting.key}").get() === "true",\n` +
     `    (value) => controller(trimSettingsController, "${setting.key}").set(value ? "true" : "false"),\n` +
     `    (listener) => controller(trimSettingsController, "${setting.key}").subscribe((value) => listener(value === "true")),\n` +
