@@ -10,6 +10,7 @@ import { addCommand } from "../commands/add";
 import { detectCommand } from "../commands/detect";
 import { newControlCommand } from "../commands/new-control";
 import { attachCommand } from "../commands/attach";
+import { exampleCommand } from "../commands/example";
 
 const commands: CommandTable = {
   init: initCommand,
@@ -17,6 +18,7 @@ const commands: CommandTable = {
   detect: detectCommand,
   "new-control": newControlCommand,
   attach: attachCommand,
+  example: exampleCommand,
 };
 
 runCli(process.argv.slice(2), commands).then(

@@ -30,6 +30,7 @@ Usage:
 Commands:
   init
   add <ref>
+  example <name>   Copy a registry example into ./<name>
   detect   Find existing state that can be safely integrated with Trim
   new control <id>
   attach <control-id>
@@ -37,6 +38,7 @@ Commands:
 Examples:
   trim init
   trim add @default/example
+  trim example shadcn
   trim new control reduced-motion
   trim attach reduced-motion
   trim detect

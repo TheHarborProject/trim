@@ -50,7 +50,7 @@
 // already succeeded — see applyExamplePlan's replace branch for why that
 // ordering is what keeps "starter removed, example half-installed"
 // structurally impossible.
-import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
+import { lstat, mkdir, readFile, rm, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { detectProject, type ModuleResolutionMode } from "../project/detect-project";
 import { readTrimMetadata, type Styling } from "../project/trim-metadata";
@@ -79,6 +79,34 @@ import {
 import { applyTemplateFilePlan, type TemplateFilePlan } from "./template-registry";
 import { readTemplate } from "../templates-path";
 import { UsageError } from "../dispatch";
+import { RegistryClient, type ExampleFile } from "../registry/client";
+
+/** Standalone registry examples share the plan/apply boundary and template writer. */
+export async function buildRegistryExamplePlan(cwd: string, name: string, client = new RegistryClient()): Promise<{ destination: string; files: ExampleFile[] }> {
+  if (!/^[a-z0-9][a-z0-9_-]*$/i.test(name)) throw new UsageError("Example name must contain only letters, numbers, underscores, or hyphens, starting with a letter or number.");
+  const destination = path.resolve(cwd, name);
+  try {
+    await lstat(destination);
+    throw new UsageError(`Destination already exists: ${destination}. Choose another working directory or move it before retrying.`);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+  }
+  return { destination, files: await client.example(name) };
+}
+
+export async function applyRegistryExamplePlan(plan: { destination: string; files: ExampleFile[] }): Promise<void> {
+  // Exclusive mkdir also catches a destination created after planning.
+  await mkdir(plan.destination);
+  try {
+    for (const file of plan.files) {
+      await applyTemplateFilePlan(plan.destination, { ...file, status: "create" });
+    }
+  } catch (error) {
+    try { await rm(plan.destination, { recursive: true, force: true }); }
+    catch { throw new UsageError(`Example installation failed; could not clean up ${plan.destination}. Remove the partial directory before retrying. Original error: ${String(error)}`); }
+    throw error;
+  }
+}
 
 const STATIC_LITERAL_FILES: readonly { templatePath: string; targetPath: string }[] = [
   { templatePath: "default/example/host/contrast-store.ts", targetPath: "host/contrast-store.ts" },

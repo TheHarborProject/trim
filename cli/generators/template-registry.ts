@@ -76,9 +76,9 @@ export function listKnownRefs(): readonly string[] {
   return [...TEMPLATE_REGISTRY.map((entry) => entry.ref), "@default/example"];
 }
 
-export type TemplateFilePlan = {
+export type TemplateFilePlan<T extends string | Uint8Array = string> = {
   path: string;
-  contents: string;
+  contents: T;
   status: TemplateFileStatus;
 };
 
@@ -94,7 +94,7 @@ export async function buildTemplateFilePlan(cwd: string, entry: TemplateEntry): 
 }
 
 /** Only ever called with a "create" (or already-"matches", a harmless no-op rewrite) plan — never "conflict"; see cli/commands/add.ts. */
-export async function applyTemplateFilePlan(cwd: string, plan: TemplateFilePlan): Promise<void> {
+export async function applyTemplateFilePlan(cwd: string, plan: TemplateFilePlan<string | Uint8Array>): Promise<void> {
   if (plan.status === "conflict") {
     throw new UsageError(`refusing to overwrite ${plan.path} — this should not be reached; trim add never applies a conflicting plan.`);
   }
