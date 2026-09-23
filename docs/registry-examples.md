@@ -6,7 +6,7 @@ must not already exist. Trim does not install dependencies or execute scripts.
 Read the copied example's README for setup instructions.
 
 The official manifest is
-`https://trim.theharborproject.dev/registry/registry.json`, configured in
+`https://theharborproject.github.io/trim-registry/registry/registry.json`, configured in
 `cli/registry/client.ts` as `DEFAULT_REGISTRY_URL`. For development, point
 `TRIM_REGISTRY_URL` at an HTTP(S) or absolute `file://` manifest URL:
 

@@ -1,6 +1,6 @@
 {
   "name": "@theharborproject/trim",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Adaptive UI: a registry + binding contract that connects declarative controls to state your app already owns.",
   "license": "MIT",
   "repository": {
@@ -86,7 +86,7 @@
     "dist"
   ],
   "bin": {
-    "trim": "dist/cli/bin/trim.js"
+    "trim": "./dist/cli/bin/trim.js"
   },
   "engines": {
     "node": ">=18.17"

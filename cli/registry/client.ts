@@ -3,7 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { UsageError } from "../dispatch";
 
-export const DEFAULT_REGISTRY_URL = "https://trim.theharborproject.dev/registry/registry.json";
+export const DEFAULT_REGISTRY_URL = "https://theharborproject.github.io/trim-registry/registry/registry.json";
 export type RegistryManifest = { examples: Record<string, { path: string; files: string[] }> };
 export type ExampleFile = { path: string; contents: Uint8Array };
 

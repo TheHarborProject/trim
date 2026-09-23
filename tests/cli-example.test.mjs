@@ -27,7 +27,7 @@ const manifest = {
 };
 const source = JSON.stringify(manifest);
 const parsed = parseRegistryManifest(source);
-assert.equal(DEFAULT_REGISTRY_URL, 'https://trim.theharborproject.dev/registry/registry.json');
+assert.equal(DEFAULT_REGISTRY_URL, 'https://theharborproject.github.io/trim-registry/registry/registry.json');
 assert.deepEqual(resolveExample(parsed, 'vanilla'), { path: 'examples/vanilla', files: manifest.examples.vanilla.files });
 assert.throws(() => resolveExample(parsed, 'unknown'), /Unknown example "unknown".*headless, vanilla/);
 assert.throws(() => resolveExample(parsed, 'constructor'), /Unknown example/);
