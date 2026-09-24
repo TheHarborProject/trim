@@ -21,7 +21,8 @@
 // `addCommand` (the actual dispatch.ts CommandHandler) supplies the real
 // one. Tests call `runAddCommand` directly with a fixture cwd.
 
-import { GENERATED_PLUGINS, buildGeneratedPluginPlan, applyGeneratedPluginPlan } from "../generators/generated-plugin-plan";
+import { GENERATED_PLUGINS, buildGeneratedPluginPlan, applyGeneratedPluginPlan, type GeneratedPluginInstallOptions } from "../generators/generated-plugin-plan";
+import type { TrimUIAdapterValue } from "../project/trim-metadata";
 import { detectProject } from "../project/detect-project";
 import { findTemplateEntry, listKnownRefs, buildTemplateFilePlan, applyTemplateFilePlan, type TemplateFilePlan } from "../generators/template-registry";
 import { buildExamplePlan, applyExamplePlan } from "../generators/example-plan";
@@ -92,14 +93,18 @@ async function runShadcnTemplateInstall(cwd: string, ref: string): Promise<void>
   await installSingleFilePlan(cwd, ref, plan, entry.usageHint, applyShadcnTemplatePlan);
 }
 
-export async function runAddCommand(cwd: string, ref: string): Promise<void> {
+export async function runAddCommand(cwd: string, ref: string, options: GeneratedPluginInstallOptions = {}): Promise<void> {
   const plugin = GENERATED_PLUGINS.find((entry) => entry.ref === ref);
   if (plugin) {
-    const plan = await buildGeneratedPluginPlan(cwd, plugin);
+    const plan = await buildGeneratedPluginPlan(cwd, plugin, options);
     await applyGeneratedPluginPlan(cwd, plan);
     for (const file of plan.files) console.log(`✓ ${file.path}`);
     console.log(`${plugin.control.label} installed in ${plugin.group.label}.`);
     return;
+  }
+
+  if (options.adapter || options.renderer) {
+    throw new UsageError("--adapter and --renderer are supported only for canonical generated plugins (for example @default/plugins/text-size).");
   }
 
   if (ref === "@default/example") {
@@ -121,7 +126,21 @@ export async function runAddCommand(cwd: string, ref: string): Promise<void> {
 }
 
 export const addCommand: CommandHandler = async (args) => {
-  const [ref] = args;
+  const [ref, ...flags] = args;
   if (!ref) throw new UsageError("Usage: trim add <ref>");
-  await runAddCommand(process.cwd(), ref);
+  const options: GeneratedPluginInstallOptions = {};
+  for (let i = 0; i < flags.length; i += 2) {
+    const flag = flags[i];
+    const value = flags[i + 1];
+    if ((flag !== "--adapter" && flag !== "--renderer") || value === undefined) throw new UsageError("Usage: trim add <ref> [--adapter vanilla|shadcn|headless] [--renderer name]");
+    if (flag === "--adapter") {
+      if (!["vanilla", "shadcn", "headless"].includes(value)) throw new UsageError("Usage: trim add <ref> [--adapter vanilla|shadcn|headless] [--renderer name]");
+      if (options.adapter) throw new UsageError("trim add accepts --adapter only once.");
+      options.adapter = value as TrimUIAdapterValue;
+    } else {
+      if (options.renderer) throw new UsageError("trim add accepts --renderer only once.");
+      options.renderer = value;
+    }
+  }
+  await runAddCommand(process.cwd(), ref, options);
 };

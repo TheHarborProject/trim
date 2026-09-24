@@ -27,14 +27,10 @@
 import { useId, useMemo, useState, type ReactNode } from "react";
 import { useTrimControlState, useTrimRegistry } from "./hooks";
 import { groupInOrder } from "../advanced/sorting";
-import { DefaultBooleanControl } from "./controls/boolean";
-import { DefaultSegmentedControl } from "./controls/segmented";
-import { DefaultToggleActionControl } from "./controls/toggle-action";
-import { UnsupportedKindFallback } from "./controls/unsupported-fallback";
 import { DefaultSectionsLayout } from "./layouts/sections";
+import { renderResolvedControl } from "./layouts/render-resolved-control";
 import { resolveTrimGroups, warnOnUniquenessViolations, type TrimConfig } from "./config";
 import { resolveShell } from "./shell/resolve";
-import type { TrimControl } from "../core/integration";
 import type { TrimRegistry } from "../core/registry";
 
 function ControlWidget({ controlRef, registry }: { controlRef: string; registry?: TrimRegistry }) {
@@ -53,16 +49,7 @@ function ControlWidget({ controlRef, registry }: { controlRef: string; registry?
     if (process.env.NODE_ENV !== "production") console.error(`Trim: <Trim.Control id="${controlRef}"> — no such control.`);
     return null;
   }
-  switch (control.kind) {
-    case "toggle":
-      return <DefaultBooleanControl control={control as TrimControl<boolean>} value={value as boolean | undefined} setValue={setValue as (v: boolean) => void} />;
-    case "segmented":
-      return <DefaultSegmentedControl groupName={`${instanceId}-${controlRef}`} control={control as TrimControl<string>} value={value as string | undefined} setValue={setValue as (v: string) => void} />;
-    case "toggle-action":
-      return <DefaultToggleActionControl control={control as TrimControl<boolean>} value={value as boolean | undefined} setValue={setValue as (v: boolean) => void} />;
-    default:
-      return <UnsupportedKindFallback control={control} />;
-  }
+  return renderResolvedControl(control, value, setValue, `${instanceId}-${controlRef}`);
 }
 
 // --- public primitives -------------------------------------------------
@@ -118,7 +105,7 @@ function ConfiguredPanel({ config, registry }: { config: TrimConfig; registry?: 
   const [open, setOpen] = useState(false);
   return (
     <Shell open={open} onOpenChange={setOpen}>
-      <Layout groups={groups} registry={registry} />
+      <Layout groups={groups} registry={registry} adapter={config.ui?.adapter} renderers={config.ui?.renderers} />
     </Shell>
   );
 }

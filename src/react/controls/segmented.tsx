@@ -17,7 +17,7 @@
 // existing `@theharborproject/trim/advanced` imports keep working
 // unchanged.
 
-import type { ReactNode } from "react";
+import { useId, type ReactNode } from "react";
 import type { TrimControlRendererProps } from "../renderer-contract";
 
 export type DefaultSegmentedControlProps = TrimControlRendererProps<string> & { groupName: string };
@@ -40,4 +40,11 @@ export function DefaultSegmentedControl({ groupName, control, value, setValue }:
       ))}
     </fieldset>
   );
+}
+
+/** Explicit-renderer adapter: preserves the per-mount radio-group contract
+ * when the built-in segmented renderer is attached as a component override. */
+export function DefaultSegmentedControlOverride(props: TrimControlRendererProps<string>) {
+  const id = useId();
+  return <DefaultSegmentedControl {...props} groupName={`${id}-${props.control.id}`} />;
 }

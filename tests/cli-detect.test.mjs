@@ -467,9 +467,11 @@ export default defineBooleanControl({ id: "manual", label: "Manual", binding: { 
     // ONE init run.
     const dirTrue = path.join(testRoot, 'shadcn-true');
     mkdirSync(path.join(dirTrue, 'src'), { recursive: true });
-    writeFileSync(path.join(dirTrue, 'tsconfig.json'), JSON.stringify({ compilerOptions: { moduleResolution: 'bundler', strict: true } }), 'utf8');
+    writeFileSync(path.join(dirTrue, 'tsconfig.json'), JSON.stringify({ compilerOptions: { moduleResolution: 'bundler', strict: true, baseUrl: '.', paths: { '@/*': ['./*'] } } }), 'utf8');
     writeFileSync(path.join(dirTrue, 'src/candidates.ts'), CANDIDATES_SOURCE, 'utf8');
     writeFileSync(path.join(dirTrue, 'components.json'), '{"aliases":{"ui":"@/components/ui"}}', 'utf8');
+    mkdirSync(path.join(dirTrue, 'components/ui'), { recursive: true });
+    for (const file of ['switch.js', 'toggle-group.js', 'toggle.js']) writeFileSync(path.join(dirTrue, 'components/ui', file), 'export const x = 1;\n', 'utf8');
     await swallowLogs(() => runInitCommand(dirTrue, scriptedAsk(['1', '3'])));
     assert.match(readFileSync(path.join(dirTrue, 'trim/trim.json'), 'utf8'), /"shadcn": true/, 'sanity: this fixture really does end up with shadcn: true');
     const outFalse = await swallowLogs(() => runDetectCommand(dirFalse, scriptedAsk(['3'])));

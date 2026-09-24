@@ -18,7 +18,7 @@ export function ShadcnSegmentedControl({ control, value, setValue }: TrimControl
       <ToggleGroup
         type="single"
         value={value}
-        onValueChange={next => {
+        onValueChange={(next: string) => {
           // Radix's single-select ToggleGroup reports an empty string when
           // the currently-active item is clicked again (deselecting it).
           // Trim's segmented control always has a defined value, so a

@@ -69,10 +69,11 @@ try {
     const before = tree(dir);
     const oldConfig = read(dir, configPath);
     const oldSettings = parseExistingManagedSettings(read(dir, settingsPath));
-    const plan = await buildGeneratedPluginPlan(dir, GENERATED_PLUGINS[0]);
+    const installOptions = mode === 'nodenext' ? { renderer: 'vanilla.segmented' } : {};
+    const plan = await buildGeneratedPluginPlan(dir, GENERATED_PLUGINS[0], installOptions);
     assert.deepEqual(tree(dir), before, 'planning is read-only');
     assert.equal(plan.files.length, 4);
-    await runAddCommand(dir, ref);
+    await runAddCommand(dir, ref, installOptions);
     assert.equal(read(dir, controlPath), generateControlFileContents(canonical, mode === 'bundler' ? 'classic-or-bundler' : 'node16-or-nodenext'));
     assert.deepEqual(parseExistingManagedSettings(read(dir, settingsPath)), [...oldSettings, {
       key: 'text-size', kind: 'segmented', options: ['small', 'default', 'large'], defaultValue: 'default',
@@ -82,14 +83,15 @@ try {
     const config = read(dir, configPath);
     assert.match(config, /id: "text"/);
     assert.match(config, /label: "Text"/);
-    assert.match(config, /controls: \[\s*"text-size",?\s*\]/);
+    if (mode === 'nodenext') assert.match(config, /controls: \[\s*\{ id: "text-size", component: DefaultSegmentedControlOverride \},?\s*\]/);
+    else assert.match(config, /controls: \[\s*"text-size",?\s*\]/);
     assert.match(config, /controls: \["starter"\]/);
-    assert.ok(config.includes(oldConfig.slice(0, oldConfig.indexOf('groups:'))), 'host imports and config prefix preserved');
+    if (mode !== 'nodenext') assert.ok(config.includes(oldConfig.slice(0, oldConfig.indexOf('groups:'))), 'host imports and config prefix preserved');
     for (const [file, contents] of Object.entries(before)) {
       if (![configPath, settingsPath, manifestPath].includes(file)) assert.equal(tree(dir)[file], contents, file);
     }
     const installed = tree(dir);
-    await assert.rejects(runAddCommand(dir, ref), /already exists/);
+    await assert.rejects(runAddCommand(dir, ref, installOptions), /already exists/);
     assert.deepEqual(tree(dir), installed, 'repeat install safely refuses without changes');
     execFileSync('node', ['node_modules/typescript/bin/tsc', path.join(dir, configPath), path.join(dir, controlPath),
       '--noEmit', '--strict', '--module', mode === 'bundler' ? 'esnext' : mode,

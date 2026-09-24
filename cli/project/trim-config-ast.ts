@@ -34,8 +34,17 @@ export type ExistingGroup = {
 
 export type ParsedConfig = {
   sourceFile: ts.SourceFile;
+  configObject: ts.ObjectLiteralExpression;
   groupsArray: ts.ArrayLiteralExpression;
   groups: readonly ExistingGroup[];
+};
+
+export type TrimConfigUiInfo = {
+  adapter?: string;
+  hasUi: boolean;
+  hasRenderers: boolean;
+  rendererLocal?: string;
+  uiObject?: ts.ObjectLiteralExpression;
 };
 
 function findDefaultExportObjectLiteral(tsc: TS, sourceFile: ts.SourceFile): ts.ObjectLiteralExpression | undefined {
@@ -123,7 +132,50 @@ export function parseTrimConfig(tsc: TS, sourceText: string, filePath: string): 
     throw new UnsupportedConfigShapeError("the `groups` property is not a plain array literal — it may be a variable reference, a function call, or missing entirely.");
   }
 
-  return { sourceFile, groupsArray, groups: extractGroups(tsc, groupsArray) };
+  return { sourceFile, configObject: configLiteral, groupsArray, groups: extractGroups(tsc, groupsArray) };
+}
+
+export function inspectTrimConfigUi(tsc: TS, parsed: ParsedConfig): TrimConfigUiInfo {
+  const uiProperty = parsed.configObject.properties.find((p): p is ts.PropertyAssignment =>
+    tsc.isPropertyAssignment(p) && tsc.isIdentifier(p.name) && p.name.text === "ui",
+  );
+  if (!uiProperty) return { hasUi: false, hasRenderers: false };
+  if (!tsc.isObjectLiteralExpression(uiProperty.initializer)) {
+    throw new UnsupportedConfigShapeError("the `ui` property is not a plain object literal — Trim cannot safely configure its adapter or renderer map.");
+  }
+  const uiObject = uiProperty.initializer;
+  const adapter = findStringLiteralProp(tsc, uiObject, "adapter");
+  const renderers = uiObject.properties.find((p): p is ts.PropertyAssignment => tsc.isPropertyAssignment(p) && tsc.isIdentifier(p.name) && p.name.text === "renderers");
+  return { adapter, hasUi: true, hasRenderers: renderers !== undefined, rendererLocal: renderers && tsc.isIdentifier(renderers.initializer) ? renderers.initializer.text : undefined, uiObject };
+}
+
+export function computeTrimUiEdit(
+  tsc: TS,
+  parsed: ParsedConfig,
+  sourceText: string,
+  changes: { adapter?: string; rendererLocal?: string },
+): string {
+  const info = inspectTrimConfigUi(tsc, parsed);
+  if (!info.hasUi) {
+    const indent = lineIndentAt(parsed.sourceFile, parsed.configObject.getStart(parsed.sourceFile));
+    const rendererLine = changes.rendererLocal ? `${indent}    renderers: ${changes.rendererLocal},\n` : "";
+    const uiText = `\n${indent}  ui: {\n${indent}    adapter: ${JSON.stringify(changes.adapter)},\n${rendererLine}${indent}  },`;
+    return sourceText.slice(0, parsed.configObject.getStart(parsed.sourceFile) + 1) + uiText + sourceText.slice(parsed.configObject.getStart(parsed.sourceFile) + 1);
+  }
+  const uiObject = info.uiObject!;
+  const uiIndent = lineIndentAt(parsed.sourceFile, uiObject.getStart(parsed.sourceFile));
+  const innerIndent = `${uiIndent}  `;
+  const additions: string[] = [];
+  if (changes.adapter !== undefined && info.adapter === undefined) additions.push(`adapter: ${JSON.stringify(changes.adapter)}`);
+  if (changes.rendererLocal && !info.hasRenderers) additions.push(`renderers: ${changes.rendererLocal}`);
+  if (additions.length === 0) return sourceText;
+  const close = uiObject.getEnd() - 1;
+  const properties = uiObject.properties;
+  if (properties.length === 0) return sourceText.slice(0, close) + `\n${additions.map((x) => `${innerIndent}${x},`).join("\n")}\n${uiIndent}` + sourceText.slice(close);
+  const last = properties[properties.length - 1];
+  const between = sourceText.slice(last.getEnd(), close);
+  const comma = between.includes(",") ? "" : ",";
+  return sourceText.slice(0, close) + `${comma}\n${additions.map((x) => `${innerIndent}${x},`).join("\n")}\n${uiIndent}` + sourceText.slice(close);
 }
 
 function lineIndentAt(sourceFile: ts.SourceFile, pos: number): string {
@@ -186,8 +238,8 @@ export type AttachTarget =
  * id or dotted ref to attach (attach never generates a component
  * override — see cli/commands/attach.ts's header).
  */
-export function computeAttachEdit(parsed: ParsedConfig, ref: string, target: AttachTarget, sourceText: string): string {
-  const itemText = JSON.stringify(ref);
+export function computeAttachEdit(parsed: ParsedConfig, ref: string, target: AttachTarget, sourceText: string, explicitItemText?: string): string {
+  const itemText = explicitItemText ?? JSON.stringify(ref);
 
   if (target.kind === "new-group") {
     // Must match computeArrayInsertion's OWN itemIndent exactly (below):

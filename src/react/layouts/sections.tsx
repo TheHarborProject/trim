@@ -37,10 +37,12 @@ import type { TrimLayoutProps, TrimResolvedGroup } from "../config";
 import { renderResolvedControl } from "./render-resolved-control";
 import type { TrimRegistry } from "../../core/registry";
 
-function LayoutItem({ itemRef, component, registry }: {
+function LayoutItem({ itemRef, component, registry, adapter, renderers }: {
   itemRef: string;
   component?: TrimResolvedGroup["items"][number]["component"];
   registry?: TrimRegistry;
+  adapter?: TrimLayoutProps["adapter"];
+  renderers?: TrimLayoutProps["renderers"];
 }) {
   // Same rationale as panel.tsx's ControlWidget: a per-mount unique id keeps
   // two rendered instances of the SAME segmented control (is_unique: false)
@@ -53,7 +55,7 @@ function LayoutItem({ itemRef, component, registry }: {
     }
     return null;
   }
-  return renderResolvedControl(control, value, setValue, `${instanceId}-${itemRef}`, component);
+  return renderResolvedControl(control, value, setValue, `${instanceId}-${itemRef}`, component, { adapter, renderers });
 }
 
 function GroupSection({ group, children }: { group: TrimResolvedGroup; children: ReactNode }) {
@@ -72,7 +74,7 @@ function GroupSection({ group, children }: { group: TrimResolvedGroup; children:
   );
 }
 
-export function DefaultSectionsLayout({ groups, registry }: TrimLayoutProps) {
+export function DefaultSectionsLayout({ groups, registry, adapter, renderers }: TrimLayoutProps) {
   return (
     <>
       {groups.map(group => (
@@ -80,7 +82,7 @@ export function DefaultSectionsLayout({ groups, registry }: TrimLayoutProps) {
           {group.items.map((item, index) => (
             // Index in the key, not just item.ref: an is_unique: false
             // control can legitimately appear more than once in one group.
-            <LayoutItem key={`${index}-${item.ref}`} itemRef={item.ref} component={item.component} registry={registry} />
+            <LayoutItem key={`${index}-${item.ref}`} itemRef={item.ref} component={item.component} registry={registry} adapter={adapter} renderers={renderers} />
           ))}
         </GroupSection>
       ))}

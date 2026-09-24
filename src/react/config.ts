@@ -12,7 +12,7 @@
 // *.trim.ts control file.
 
 import type { ComponentType, ReactNode } from "react";
-import type { TrimCore } from "../core/integration";
+import type { TrimControlKind, TrimCore } from "../core/integration";
 import type { TrimRegistry } from "../core/registry";
 import { findControl } from "../advanced/resolution";
 import type { TrimControlRendererProps } from "./renderer-contract";
@@ -27,6 +27,10 @@ export type TrimGroupDef = {
   collapsed?: boolean;
   controls: readonly TrimGroupItem[];
 };
+
+export type TrimRenderer = ComponentType<TrimControlRendererProps<any>>;
+
+export type TrimRendererMap = Partial<Record<TrimControlKind, TrimRenderer>>;
 
 /**
  * One resolved, renderable slot: `ref` is the registry ref this item points
@@ -59,6 +63,8 @@ export type TrimResolvedGroup = {
 export type TrimLayoutProps = {
   groups: readonly TrimResolvedGroup[];
   registry?: TrimRegistry;
+  adapter?: TrimUIAdapter;
+  renderers?: TrimRendererMap;
 };
 
 /**
@@ -108,6 +114,7 @@ export type TrimConfig = {
   ui?: {
     adapter?: TrimUIAdapter;
     shell?: TrimShell;
+    renderers?: TrimRendererMap;
   };
   // "flat" is deliberately not offered yet — no implementation exists for
   // it in this step, and a union member with nothing behind it is exactly

@@ -19,8 +19,8 @@ import { UsageError } from "../dispatch";
 export const CONFIG_PATH = "trim/trim.config.tsx";
 
 export type AttachAnswers =
-  | { mode: "existing-group"; groupId: string; position: "append" | { before: string } | { after: string } }
-  | { mode: "new-group"; groupId: string; groupLabel: string };
+  | { mode: "existing-group"; groupId: string; position: "append" | { before: string } | { after: string }; itemText?: string }
+  | { mode: "new-group"; groupId: string; groupLabel: string; itemText?: string };
 
 export type AttachInfo = {
   cwd: string;
@@ -40,7 +40,7 @@ export type AttachInfo = {
  * so nothing wastes the user's time on a wizard that would just be
  * rejected at the end. Never writes.
  */
-export async function gatherAttachInfo(cwd: string, id: string, plannedControlSource?: string): Promise<AttachInfo> {
+export async function gatherAttachInfo(cwd: string, id: string, plannedControlSource?: string, plannedConfigSource?: string): Promise<AttachInfo> {
   if (plannedControlSource === undefined && !controlAlreadyExists(cwd, id)) {
     throw new UsageError(`control "${id}" does not exist. Declare it first: \`trim new control ${id}\`.`);
   }
@@ -49,10 +49,13 @@ export async function gatherAttachInfo(cwd: string, id: string, plannedControlSo
 
   const configFullPath = path.join(cwd, CONFIG_PATH);
   let configSource: string;
-  try {
-    configSource = await readFile(configFullPath, "utf8");
-  } catch {
-    throw new UsageError(`could not read ${CONFIG_PATH} — run \`trim init\` first.`);
+  if (plannedConfigSource !== undefined) configSource = plannedConfigSource;
+  else {
+    try {
+      configSource = await readFile(configFullPath, "utf8");
+    } catch {
+      throw new UsageError(`could not read ${CONFIG_PATH} — run \`trim init\` first.`);
+    }
   }
 
   let parsed: ParsedConfig;
@@ -100,7 +103,7 @@ export function buildAttachEdit(info: AttachInfo, answers: AttachAnswers): strin
 
   let newText: string;
   try {
-    newText = computeAttachEdit(info.parsed, info.ref, target, info.configSource);
+    newText = computeAttachEdit(info.parsed, info.ref, target, info.configSource, answers.itemText);
   } catch (error) {
     if (error instanceof UnsupportedConfigShapeError) {
       throw new UsageError(error.message);

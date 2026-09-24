@@ -109,6 +109,16 @@ const VANILLA_POPOVER_DEFAULT = {
 // single child) closely enough to prove the generated <PopoverTrigger asChild>
 // actually works, without a real @radix-ui dependency anywhere in this repo.
 const SHADCN_STUB_SOURCE = {
+  "switch.tsx": `import * as React from "react";
+export function Switch(props: any) { return React.createElement("button", props); }
+`,
+  "toggle-group.tsx": `import * as React from "react";
+export function ToggleGroup(props: any) { return React.createElement("div", null, props.children); }
+export function ToggleGroupItem(props: any) { return React.createElement("button", null, props.children); }
+`,
+  "toggle.tsx": `import * as React from "react";
+export function Toggle(props: any) { return React.createElement("button", props, props.children); }
+`,
   "button.tsx": `import * as React from "react";
 export function Button(props: { variant?: string; asChild?: boolean; children?: React.ReactNode }) {
   return React.createElement("button", null, props.children);
@@ -136,6 +146,9 @@ export function DialogContent(props: { children?: React.ReactNode }) { return Re
 // purely so the "style" key can be omitted in a fallback-detection test and
 // still resolve to "base" via signal 2 (grepping installed imports).
 const SHADCN_STUB_SOURCE_BASE = {
+  "switch.tsx": SHADCN_STUB_SOURCE["switch.tsx"],
+  "toggle-group.tsx": SHADCN_STUB_SOURCE["toggle-group.tsx"],
+  "toggle.tsx": SHADCN_STUB_SOURCE["toggle.tsx"],
   "button.tsx": `import * as React from "react";
 export function Button(props: { variant?: string; children?: React.ReactNode }) {
   return React.createElement("button", null, props.children);
@@ -193,7 +206,7 @@ ${SHADCN_STUB_SOURCE["popover.tsx"].split("\n").slice(1).join("\n")}`,
  */
 function shadcnFixture(name, options = {}) {
   const {
-    presentComponents = ["button.tsx", "popover.tsx", "dialog.tsx"],
+    presentComponents = ["button.tsx", "popover.tsx", "dialog.tsx", "switch.tsx", "toggle-group.tsx", "toggle.tsx"],
     backend = "radix",
   } = options;
   // NOT a destructuring default (`style = 'new-york'`) — a default param
@@ -1316,8 +1329,8 @@ export function TrimPanel() {
     );
     assert.equal(
       plan.files.length,
-      CORE_FILE_COUNT + 1,
-      "trim/TrimShell.tsx is the one extra file for a visible shadcn shell",
+      CORE_FILE_COUNT + 5,
+      "trim/TrimShell.tsx plus the renderer map and three kind renderers are generated for a visible shadcn shell",
     );
     const metadata = parseTrimMetadata(
       plan.files.find((f) => f.path === TRIM_JSON_PATH).contents,
@@ -1329,6 +1342,8 @@ export function TrimPanel() {
     const shell = plan.files.find((f) => f.path === SHELL_PATH);
 
     assert.ok(shell, "trim/TrimShell.tsx is planned");
+    assert.ok(plan.files.some((f) => f.path === "trim/trim.renderers.tsx"));
+    assert.ok(plan.files.some((f) => f.path === "trim/renderers/shadcn-segmented.tsx"));
     
     assert.equal(shell.status, "create");
     
@@ -1382,9 +1397,11 @@ export function TrimPanel() {
     assert.match(shell.contents, /export function TrimShell\(\)/);
   }
 
-  // --- shadcn shell: "inline" needs no shell wrapper file at all — no primitive requirement either ---
+  // --- shadcn shell: "inline" needs no shell wrapper file at all, but adapter
+  // initialization still provisions every supported renderer kind. ---
   {
-    // deliberately NO button.tsx/popover.tsx/dialog.tsx on disk — proves "inline" never even checks for them
+    // Shell primitives are unnecessary for inline, but renderer primitives are
+    // required because the adapter map is generated eagerly and completely.
     const dir = fixture("shadcn-inline-no-primitives", {
       tsconfig: JSON.stringify({
         compilerOptions: {
@@ -1397,6 +1414,9 @@ export function TrimPanel() {
         "components.json": JSON.stringify({
           aliases: { ui: "@/components/ui" },
         }),
+        "components/ui/switch.tsx": SHADCN_STUB_SOURCE["switch.tsx"],
+        "components/ui/toggle-group.tsx": SHADCN_STUB_SOURCE["toggle-group.tsx"],
+        "components/ui/toggle.tsx": SHADCN_STUB_SOURCE["toggle.tsx"],
       },
     });
     const plan = await buildInitPlan(detectProject(dir), {
@@ -1405,10 +1425,11 @@ export function TrimPanel() {
     });
     assert.equal(
       plan.files.length,
-      CORE_FILE_COUNT,
+      CORE_FILE_COUNT + 4,
       'no trim/TrimShell.tsx for shell: "inline"',
     );
     assert.ok(!plan.files.some((f) => f.path === SHELL_PATH));
+    assert.ok(plan.files.some((f) => f.path === "trim/trim.renderers.tsx"));
     const metadata = parseTrimMetadata(
       plan.files.find((f) => f.path === TRIM_JSON_PATH).contents,
     );
@@ -1427,7 +1448,7 @@ export function TrimPanel() {
   // --- shadcn shell: required primitive genuinely missing -> clear failure, nothing written, other refs unaffected ---
   {
     const dir = shadcnFixture("shadcn-missing-popover", {
-      presentComponents: ["button.tsx"],
+      presentComponents: ["button.tsx", "switch.tsx", "toggle-group.tsx", "toggle.tsx"],
     }); // popover.tsx deliberately absent
     await assert.rejects(
       buildInitPlan(detectProject(dir), {
@@ -1451,7 +1472,7 @@ export function TrimPanel() {
 
   // --- shadcn shell: BOTH required primitives missing -> both named together ---
   {
-    const dir = shadcnFixture("shadcn-missing-both", { presentComponents: [] });
+    const dir = shadcnFixture("shadcn-missing-both", { presentComponents: ["switch.tsx", "toggle-group.tsx", "toggle.tsx"] });
     const message = await buildInitPlan(detectProject(dir), {
       adapter: "shadcn",
       shell: "dialog",
@@ -1633,7 +1654,7 @@ export function TrimPanel() {
   {
     const dir = shadcnFixture("shadcn-aria-refused", {
       style: "aria-lyra",
-      presentComponents: ["button.tsx", "popover.tsx"],
+      presentComponents: ["button.tsx", "popover.tsx", "switch.tsx", "toggle-group.tsx", "toggle.tsx"],
     });
     await assert.rejects(
       buildInitPlan(detectProject(dir), {

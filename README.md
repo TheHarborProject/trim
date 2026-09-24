@@ -58,6 +58,36 @@ function App() {
 }
 ```
 
+## CLI adapters and renderer overrides
+
+Choose the project's UI adapter during initialization when needed:
+
+```sh
+trim init --adapter vanilla
+trim init --adapter shadcn
+trim init --adapter headless
+```
+
+Generated plugins stay canonical and adapter-agnostic. A normal install keeps
+the control reference simple and uses the configured adapter's renderer map:
+
+```sh
+trim add @default/plugins/text-size
+trim add @default/plugins/text-size --adapter shadcn
+```
+
+Use `--renderer` only for an explicit per-plugin override:
+
+```sh
+trim add @default/plugins/text-size --renderer vanilla.segmented
+```
+
+Runtime resolution is explicit component override, then `ui.renderers[kind]`,
+then Trim's built-in renderer for vanilla or legacy configs. Headless and other
+external adapters do not silently fall back to vanilla. A shadcn initialization
+wires one host-local renderer map for all supported control kinds; later plugin
+installs reuse it without creating adapter-specific plugin variants.
+
 ## React example
 
 Declare a control once; render it anywhere with `<Trim.Panel>` or your own
@@ -241,13 +271,22 @@ The complete token contract (light defaults; dark differences in parentheses):
 
 - `--trim-bg`: `var(--trim-surface)`.
 - `--trim-surface`: `#fff` (dark: `#18181b`).
+- `--trim-surface-raised`: `#fff` (dark: `#27272a`).
+- `--trim-surface-selected`: `#f4f4f5` (dark: `#3f3f46`).
 - `--trim-ink`: `#18181b` (dark: `#f4f4f5`).
 - `--trim-muted`: `#71717a` (dark: `#a1a1aa`).
 - `--trim-line`: `#e4e4e7` (dark: `#3f3f46`).
+- `--trim-border`: `var(--trim-line)`.
+- `--trim-border-strong`: `#d4d4d8` (dark: `#52525b`).
+- `--trim-hover`: `#f4f4f5` (dark: `#3f3f46`).
+- `--trim-pressed`: `#e4e4e7` (dark: `#52525b`).
+- `--trim-backdrop`: `rgb(24 24 27 / 40%)` (dark: `rgb(0 0 0 / 55%)`).
 - `--trim-font-family`: `system-ui, sans-serif`.
 - `--trim-font-size`: `0.875rem`.
 - `--trim-line-height`: `1.4`.
 - `--trim-radius`: `12px`.
+- `--trim-shell-radius`: `16px`.
+- `--trim-control-radius`: `8px`.
 - `--trim-padding`: `16px`.
 - `--trim-gap`: `1rem`.
 - `--trim-control-min-height`: `40px`.
@@ -257,6 +296,7 @@ The complete token contract (light defaults; dark differences in parentheses):
 - `--trim-option-gap`: `8px`.
 - `--trim-border-width`: `1px`.
 - `--trim-title-weight`: `600`.
+- `--trim-shadow`: `0 12px 32px rgb(24 24 27 / 14%), 0 2px 6px rgb(24 24 27 / 8%)`.
 - `--trim-focus-width`: `2px`.
 - `--trim-focus-offset`: `2px`.
 - `--trim-focus-color`: `#7c3aed` (dark: `#a78bfa`).

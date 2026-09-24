@@ -35,10 +35,12 @@ import { collectInitAnswers } from "../prompts/init-prompts";
 import { inquirerPrompter } from "../prompts/inquirer-prompter";
 import type { Prompter } from "../prompts/prompter";
 import { UsageError, type CommandHandler } from "../dispatch";
+import type { TrimUIAdapterValue } from "../project/trim-metadata";
+import { readTrimMetadata } from "../project/trim-metadata";
 
 const STATUS_MARKER: Record<FileStatus, string> = { matches: "✓", conflict: "!", create: "+", update: "~" };
 
-export async function runInitCommand(cwd: string, prompter: Prompter): Promise<void> {
+export async function runInitCommand(cwd: string, prompter: Prompter, forcedAdapter?: TrimUIAdapterValue): Promise<void> {
   const project = detectProject(cwd);
 
   if (!project.isTypeScript) {
@@ -48,12 +50,21 @@ export async function runInitCommand(cwd: string, prompter: Prompter): Promise<v
     );
   }
 
+  if (forcedAdapter === "shadcn" && !project.shadcnConfigured) {
+    throw new UsageError('`trim init --adapter shadcn` requires an existing components.json shadcn setup. No files were written.');
+  }
+
   console.log(
     `Detected: ${project.packageManager}, TypeScript, moduleResolution=${project.moduleResolution}` +
       (project.shadcnConfigured ? ", shadcn configured (components.json found)." : ", shadcn not detected."),
   );
 
-  const answers = await collectInitAnswers(project, prompter);
+  const answers = await collectInitAnswers(project, prompter, forcedAdapter);
+  const existingMetadata = await readTrimMetadata(cwd);
+  const existingAdapter = existingMetadata?.ui?.adapter;
+  if (existingAdapter && existingAdapter !== answers.adapter) {
+    throw new UsageError(`configured adapter "${existingAdapter}" conflicts with requested adapter "${answers.adapter}". No files were written.`);
+  }
   const plan = await buildInitPlan(project, answers);
 
   console.log("");
@@ -83,6 +94,13 @@ export async function runInitCommand(cwd: string, prompter: Prompter): Promise<v
   console.log(plan.files.some((file) => file.status === "create" || file.status === "update") ? "Trim initialized." : "Trim is already initialized — nothing to do.");
 }
 
-export const initCommand: CommandHandler = async () => {
-  await runInitCommand(process.cwd(), inquirerPrompter);
+export const initCommand: CommandHandler = async (args) => {
+  let forcedAdapter: TrimUIAdapterValue | undefined;
+  if (args.length > 0) {
+    if (args.length !== 2 || args[0] !== "--adapter" || !["vanilla", "shadcn", "headless"].includes(args[1])) {
+      throw new UsageError("Usage: trim init [--adapter vanilla|shadcn|headless]");
+    }
+    forcedAdapter = args[1] as TrimUIAdapterValue;
+  }
+  await runInitCommand(process.cwd(), inquirerPrompter, forcedAdapter);
 };

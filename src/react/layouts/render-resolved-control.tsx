@@ -15,6 +15,12 @@ import { DefaultToggleActionControl } from "../controls/toggle-action";
 import { UnsupportedKindFallback } from "../controls/unsupported-fallback";
 import type { TrimControl } from "../../core/integration";
 import type { TrimControlRendererProps } from "../renderer-contract";
+import type { TrimRendererMap, TrimUIAdapter } from "../config";
+
+export type RendererContext = {
+  adapter?: TrimUIAdapter;
+  renderers?: TrimRendererMap;
+};
 
 /**
  * Given an already-resolved control + its live value/setValue, renders the
@@ -30,10 +36,24 @@ export function renderResolvedControl(
   setValue: (value: unknown) => void,
   groupName: string,
   Component?: ComponentType<TrimControlRendererProps<any>>,
+  context: RendererContext = {},
 ): ReactNode {
   if (Component) {
     return <Component control={control} value={value} setValue={setValue} />;
   }
+
+  const Renderer = context.renderers?.[control.kind];
+  if (Renderer) {
+    return <Renderer control={control} value={value} setValue={setValue} />;
+  }
+
+  if (context.adapter !== undefined && context.adapter !== "vanilla") {
+    if (process.env.NODE_ENV !== "production") {
+      console.error(`Trim: no renderer is registered for control "${control.id}" (kind "${control.kind}") with adapter "${context.adapter}". Provide ui.renderers["${control.kind}"] or an explicit component override.`);
+    }
+    return null;
+  }
+
   switch (control.kind) {
     case "toggle":
       return <DefaultBooleanControl control={control as TrimControl<boolean>} value={value as boolean | undefined} setValue={setValue as (v: boolean) => void} />;

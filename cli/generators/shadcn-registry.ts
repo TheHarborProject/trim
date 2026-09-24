@@ -22,6 +22,8 @@ import { UsageError } from "../dispatch";
 
 export type ShadcnTemplateEntry = {
   ref: string;
+  /** Control kind rendered by this adapter renderer. */
+  kind: "toggle" | "segmented" | "toggle-action";
   templatePath: string;
   targetPath: string;
   /** The one shadcn primitive this renderer needs, e.g. { displayName: "Switch", fileBaseName: "switch" } — displayName as shadcn's own docs/CLI name it, fileBaseName as its generated file is named (ui/<fileBaseName>.tsx). */
@@ -37,6 +39,7 @@ export type ShadcnTemplateEntry = {
 export const SHADCN_TEMPLATE_REGISTRY: readonly ShadcnTemplateEntry[] = [
   {
     ref: "@shadcn/controls/boolean",
+    kind: "toggle",
     templatePath: "shadcn/controls/boolean.tsx",
     targetPath: "trim/renderers/shadcn-boolean.tsx",
     requiredComponent: { displayName: "Switch", fileBaseName: "switch" },
@@ -47,6 +50,7 @@ export const SHADCN_TEMPLATE_REGISTRY: readonly ShadcnTemplateEntry[] = [
   },
   {
     ref: "@shadcn/controls/segmented",
+    kind: "segmented",
     templatePath: "shadcn/controls/segmented.tsx",
     targetPath: "trim/renderers/shadcn-segmented.tsx",
     requiredComponent: { displayName: "ToggleGroup", fileBaseName: "toggle-group" },
@@ -57,6 +61,7 @@ export const SHADCN_TEMPLATE_REGISTRY: readonly ShadcnTemplateEntry[] = [
   },
   {
     ref: "@shadcn/controls/toggle-action",
+    kind: "toggle-action",
     templatePath: "shadcn/controls/toggle-action.tsx",
     targetPath: "trim/renderers/shadcn-toggle-action.tsx",
     requiredComponent: { displayName: "Toggle", fileBaseName: "toggle" },

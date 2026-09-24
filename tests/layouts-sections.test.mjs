@@ -37,6 +37,7 @@ try {
   const React = require('react');
   const { DefaultBooleanControl } = require(path.join(dir, 'react', 'controls', 'boolean.js'));
   const { DefaultSegmentedControl } = require(path.join(dir, 'react', 'controls', 'segmented.js'));
+  const { DefaultSegmentedControlOverride } = require(path.join(dir, 'react', 'controls', 'segmented.js'));
   const { DefaultToggleActionControl } = require(path.join(dir, 'react', 'controls', 'toggle-action.js'));
   const { UnsupportedKindFallback } = require(path.join(dir, 'react', 'controls', 'unsupported-fallback.js'));
   const { resolveTrimGroups } = require(path.join(dir, 'react', 'config.js'));
@@ -61,6 +62,7 @@ try {
     assert.equal(el.type, DefaultSegmentedControl);
     assert.equal(el.props.groupName, 'group-name-1', 'the per-instance group name is threaded through to the segmented renderer');
   }
+  assert.equal(typeof DefaultSegmentedControlOverride, 'function', 'explicit segmented renderer adapter is available without weakening DefaultSegmentedControl');
   {
     const el = renderResolvedControl(control('pin', 'toggle-action'), false, () => {}, 'g');
     assert.equal(el.type, DefaultToggleActionControl);
@@ -84,6 +86,50 @@ try {
     function CustomSlider() { return null; }
     const el = renderResolvedControl(control('volume', 'slider'), 0.5, () => {}, 'g', CustomSlider);
     assert.equal(el.type, CustomSlider, 'an override pre-empts even a kind with no default widget');
+  }
+
+  // --- renderer-map precedence and adapter safety ---
+  {
+    function MappedSegmented() { return null; }
+    const segmented = control('theme', 'segmented', { options: [] });
+    const mapped = renderResolvedControl(segmented, 'full', () => {}, 'g', undefined, {
+      adapter: 'vanilla',
+      renderers: { segmented: MappedSegmented },
+    });
+    assert.equal(mapped.type, MappedSegmented, 'a renderer map beats the built-in vanilla renderer');
+
+    function ExplicitSegmented() { return null; }
+    const explicit = renderResolvedControl(segmented, 'full', () => {}, 'g', ExplicitSegmented, {
+      adapter: 'vanilla',
+      renderers: { segmented: MappedSegmented },
+    });
+    assert.equal(explicit.type, ExplicitSegmented, 'an explicit component beats the renderer map');
+  }
+  {
+    const segmented = control('theme', 'segmented', { options: [] });
+    const previousNodeEnv = process.env.NODE_ENV;
+    const errors = [];
+    const originalError = console.error;
+    console.error = (...args) => errors.push(args.join(' '));
+    try {
+      process.env.NODE_ENV = 'development';
+      assert.equal(renderResolvedControl(segmented, 'full', () => {}, 'g', undefined, { adapter: 'headless' }), null, 'headless never falls back to a built-in renderer');
+      assert.equal(renderResolvedControl(segmented, 'full', () => {}, 'g', undefined, { adapter: 'custom-adapter' }), null, 'external adapters never fall back to a built-in renderer');
+      assert.equal(errors.length, 2, 'missing renderers produce development diagnostics');
+
+      errors.length = 0;
+      process.env.NODE_ENV = 'production';
+      assert.equal(renderResolvedControl(segmented, 'full', () => {}, 'g', undefined, { adapter: 'headless' }), null);
+      assert.equal(errors.length, 0, 'production emits no missing-renderer diagnostic');
+    } finally {
+      console.error = originalError;
+      if (previousNodeEnv === undefined) delete process.env.NODE_ENV;
+      else process.env.NODE_ENV = previousNodeEnv;
+    }
+  }
+  {
+    const vanilla = renderResolvedControl(control('theme', 'segmented', { options: [] }), 'full', () => {}, 'legacy');
+    assert.equal(vanilla.type, DefaultSegmentedControl, 'missing adapter preserves legacy vanilla behavior');
   }
 
   // --- DefaultSectionsLayout: group order, control order, per-item wiring ---

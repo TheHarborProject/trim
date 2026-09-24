@@ -58,7 +58,7 @@ const IMPORT_STYLESHEET_CHOICES: readonly Choice<boolean>[] = [
   { name: "No", value: false },
 ];
 
-export async function collectInitAnswers(project: ProjectInfo, prompter: Prompter): Promise<InitAnswers> {
+export async function collectInitAnswers(project: ProjectInfo, prompter: Prompter, forcedAdapter?: TrimUIAdapterValue): Promise<InitAnswers> {
   // "require the prerequisite before accepting shadcn": the choice is never
   // even offered when shadcn isn't configured, so `adapter: "shadcn"` can
   // never come from someone mistakenly picking a choice that wasn't really
@@ -69,7 +69,7 @@ export async function collectInitAnswers(project: ProjectInfo, prompter: Prompte
   if (!project.shadcnConfigured) {
     console.log("shadcn does not appear to be configured in this project (no components.json found) — \"Use project shadcn\" isn't offered.\n" + "Set it up first (https://ui.shadcn.com/docs/installation) and re-run `trim init` to enable it.");
   }
-  const adapter = await prompter.select<TrimUIAdapterValue>({ message: "UI integration:", choices: adapterChoices, default: "vanilla" });
+  const adapter = forcedAdapter ?? await prompter.select<TrimUIAdapterValue>({ message: "UI integration:", choices: adapterChoices, default: "vanilla" });
 
   // No shell concept applies to "headless" at all — see src/react/config.ts's
   // TrimShell/resolveShell: there is nothing for this question to configure.
