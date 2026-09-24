@@ -57,7 +57,7 @@ export function VanillaDialogShell({ children, open, onOpenChange, label = "Sett
         aria-label={label}
         onClick={() => onOpenChange(!open)}
       >
-        <span aria-hidden="true">⚙</span>
+        {label}
       </button>
       {open && (
         <div data-trim-shell-dialog-backdrop>

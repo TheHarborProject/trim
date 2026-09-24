@@ -32,15 +32,24 @@ const tokens = new Map(
 // Complete public token contract.
 const publicTokenContract = [
   "surface",
+  "surface-raised",
+  "surface-selected",
   "bg",
   "ink",
   "muted",
   "line",
+  "border",
+  "border-strong",
+  "hover",
+  "pressed",
+  "backdrop",
   "font-family",
   "font-size",
   "focus-color",
   "line-height",
   "radius",
+  "shell-radius",
+  "control-radius",
   "padding",
   "gap",
   "control-min-height",
@@ -50,6 +59,7 @@ const publicTokenContract = [
   "option-gap",
   "border-width",
   "title-weight",
+  "shadow",
   "focus-width",
   "focus-offset",
 ];
@@ -113,6 +123,30 @@ assert.equal(
   tokens.get("--trim-control-min-height"),
   "40px",
 );
+
+for (const name of [
+  "surface-raised",
+  "surface-selected",
+  "border",
+  "border-strong",
+  "hover",
+  "pressed",
+  "backdrop",
+  "shell-radius",
+  "control-radius",
+  "shadow",
+]) {
+  assert.ok(tokens.has(`--trim-${name}`), `redesign token: ${name}`);
+}
+
+assert.doesNotMatch(shellCss, /backdrop-filter\s*:/, "the default shell is not glass-like");
+assert.match(shellCss, /\[data-trim-shell-launcher\]\[aria-expanded="true"\]/);
+assert.match(shellCss, /\[data-trim-shell-launcher\]:hover/);
+assert.match(shellCss, /\[data-trim-shell-launcher\]:active/);
+assert.match(baseCss, /summary\[data-trim-section-title\]::marker/);
+assert.match(baseCss, /border-right:\s*1\.5px solid currentColor/);
+assert.match(controlsCss, /\[data-trim-control\]\[data-trim-kind="toggle"\]::after\s*\{\s*content:\s*none;/s);
+assert.match(controlsCss, /background:\s*var\(--trim-surface-selected\)/);
 
 assert.match(
   css,

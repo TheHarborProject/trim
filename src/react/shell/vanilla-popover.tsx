@@ -42,10 +42,13 @@ export function VanillaPopoverShell({ children, open, onOpenChange, label = "Set
         aria-label={label}
         onClick={() => onOpenChange(!open)}
       >
-        <span aria-hidden="true">⚙</span>
+        {label}
       </button>
       {open && (
-        <div ref={popoverRef} id={popoverId} role="dialog" aria-label={label} data-trim-shell-popover>
+        <div ref={popoverRef} id={popoverId} role="dialog" aria-labelledby={`${popoverId}-title`} data-trim-shell-popover>
+          <div data-trim-shell-header>
+            <span id={`${popoverId}-title`} data-trim-shell-title>{label}</span>
+          </div>
           {children}
         </div>
       )}

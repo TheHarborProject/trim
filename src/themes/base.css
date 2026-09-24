@@ -1,15 +1,24 @@
 [data-trim-panel] {
     --trim-surface: #ffffff;
+    --trim-surface-raised: #ffffff;
+    --trim-surface-selected: #f4f4f5;
     --trim-bg: var(--trim-surface);
     --trim-ink: #18181b;
     --trim-muted: #71717a;
     --trim-line: #e4e4e7;
+    --trim-border: var(--trim-line);
+    --trim-border-strong: #d4d4d8;
+    --trim-hover: #f4f4f5;
+    --trim-pressed: #e4e4e7;
+    --trim-backdrop: rgb(24 24 27 / 40%);
   
     --trim-font-family: system-ui, sans-serif;
     --trim-font-size: 0.875rem;
     --trim-line-height: 1.4;
   
     --trim-radius: 12px;
+    --trim-shell-radius: 16px;
+    --trim-control-radius: var(--trim-radius);
     --trim-padding: 16px;
     --trim-gap: 1rem;
   
@@ -22,6 +31,7 @@
   
     --trim-border-width: 1px;
     --trim-title-weight: 600;
+    --trim-shadow: 0 12px 32px rgb(24 24 27 / 14%), 0 2px 6px rgb(24 24 27 / 8%);
   
     --trim-focus-width: 2px;
     --trim-focus-offset: 2px;
@@ -39,10 +49,16 @@
   @media (prefers-color-scheme: dark) {
     [data-trim-panel] {
       --trim-surface: #18181b;
+      --trim-surface-raised: #27272a;
+      --trim-surface-selected: #3f3f46;
       --trim-bg: var(--trim-surface);
       --trim-ink: #f4f4f5;
       --trim-muted: #a1a1aa;
       --trim-line: #3f3f46;
+      --trim-border-strong: #52525b;
+      --trim-hover: #3f3f46;
+      --trim-pressed: #52525b;
+      --trim-backdrop: rgb(0 0 0 / 55%);
       --trim-focus-color: #a78bfa;
     }
   }
@@ -54,7 +70,7 @@
   }
   
   [data-trim-section] + [data-trim-section] {
-    border-top: var(--trim-border-width) solid var(--trim-line);
+    border-top: var(--trim-border-width) solid var(--trim-border);
     padding-top: 16px;
   }
   
@@ -67,27 +83,36 @@
   
     padding-right: 1.5rem;
   
-    font-size: 0.75rem;
+    font-size: 0.8125rem;
     font-weight: var(--trim-title-weight);
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
   
     color: var(--trim-muted);
     cursor: pointer;
   }
+
+  summary[data-trim-section-title] {
+    list-style: none;
+  }
+
+  summary[data-trim-section-title]::marker {
+    content: "";
+  }
   
   [data-trim-section-title]::after {
-    content: "▾";
+    content: "";
     position: absolute;
     right: 0;
     top: 50%;
     transform: translateY(-50%);
-    color: var(--trim-muted);
-    font-size: 0.75rem;
+    width: 7px;
+    height: 7px;
+    border-right: 1.5px solid currentColor;
+    border-bottom: 1.5px solid currentColor;
+    transform: translateY(-65%) rotate(45deg);
   }
   
   details[data-trim-section]:not([open]) > [data-trim-section-title]::after {
-    content: "▸";
+    transform: translateY(-35%) rotate(-45deg);
   }
   
   [data-trim-section-body] {
