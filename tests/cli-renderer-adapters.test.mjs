@@ -43,8 +43,11 @@ try {
   const rendererFiles = ["trim/renderers/shadcn-boolean.tsx", "trim/renderers/shadcn-segmented.tsx", "trim/renderers/shadcn-toggle-action.tsx"];
   const before = [mapPath, ...rendererFiles.map((file) => path.join(dir, file))].map((file) => ({ file, bytes: readFileSync(file), mtime: statSync(file).mtimeMs }));
   await runAddCommand(dir, "@default/plugins/text-size");
+  await runAddCommand(dir, "@default/plugins/high-contrast");
   const config = readFileSync(configPath(dir), "utf8");
   assert.match(config, /controls: \[\s*"text-size",?\s*\]/);
+  assert.match(config, /controls: \[\s*"high-contrast",?\s*\]/);
+  assert.doesNotMatch(config, /component:/);
   for (const entry of before) {
     assert.deepEqual(readFileSync(entry.file), entry.bytes, `${entry.file} remains byte-identical`);
     assert.equal(statSync(entry.file).mtimeMs, entry.mtime, `${entry.file} is not rewritten`);

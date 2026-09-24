@@ -7,14 +7,15 @@ import { detectProject } from "../project/detect-project";
 import { readTrimMetadata, serializeTrimMetadata, TRIM_JSON_PATH, type TrimUIAdapterValue } from "../project/trim-metadata";
 import { loadTypeScript } from "../project/resolve-typescript";
 import { computeTrimUiEdit, inspectTrimConfigUi, parseTrimConfig, UnsupportedConfigShapeError } from "../project/trim-config-ast";
-import type { NewControlSpec } from "./control-file";
+import type { GeneratedControlKind, NewControlSpec } from "./control-file";
 import { buildNewControlPlan, controlFilePath, MANIFEST_PATH, SETTINGS_PATH } from "./new-control-plan";
 import { gatherAttachInfo, buildAttachEdit, CONFIG_PATH } from "./attach-plan";
 import { buildShadcnRendererInfrastructurePlan, rendererForName, rendererMapImportSpecifier } from "./renderer-infrastructure";
 
 type GeneratedPlugin = {
   ref: string;
-  control: NewControlSpec;
+  // Canonical plugins use runtime semantic kinds, never CLI declaration aliases.
+  control: NewControlSpec & { kind: GeneratedControlKind };
   group: { id: string; label: string };
 };
 
@@ -33,6 +34,16 @@ export const GENERATED_PLUGINS: readonly GeneratedPlugin[] = [{
     binding: { mode: "trim-managed", defaultValue: "default" },
   },
   group: { id: "text", label: "Text" },
+}, {
+  ref: "@default/plugins/high-contrast",
+  control: {
+    id: "high-contrast",
+    kind: "toggle",
+    label: "High contrast",
+    allowMultiple: false,
+    binding: { mode: "trim-managed", defaultValue: false },
+  },
+  group: { id: "contrast", label: "Contrast" },
 }];
 
 type PlannedFile = { path: string; contents: string; before: Buffer | undefined };

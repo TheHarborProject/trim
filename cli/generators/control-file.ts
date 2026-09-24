@@ -7,7 +7,10 @@ import { relativeImportSpecifier, relativePathBetween } from "../project/module-
 import type { ModuleResolutionMode } from "../project/detect-project";
 import { controlIdToIdentifier } from "./manifest-file";
 
-export type ControlKind = "boolean" | "segmented" | "action" | "toggle-action";
+/** Runtime semantic kinds supported by the declaration generator. */
+export type GeneratedControlKind = "toggle" | "segmented" | "action" | "toggle-action";
+/** `boolean` is the historical CLI declaration alias for semantic kind `toggle`. */
+export type ControlKind = GeneratedControlKind | "boolean";
 
 export type SegmentedOptionSpec = { value: string; label: string };
 
@@ -38,6 +41,7 @@ export type NewControlSpec = {
 };
 
 const FACTORY_BY_KIND: Record<ControlKind, string> = {
+  toggle: "defineBooleanControl",
   boolean: "defineBooleanControl",
   segmented: "defineSegmentedControl",
   action: "defineActionControl",
